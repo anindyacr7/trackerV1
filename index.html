@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Backtest Tracker</title>
+<title>Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg: #0d0f14;
@@ -39,7 +40,6 @@
     min-height: 100vh;
   }
 
-  /* subtle grid bg */
   body::before {
     content: '';
     position: fixed;
@@ -54,14 +54,53 @@
 
   #app { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
 
+  /* ── SETUP SCREEN ── */
+  #setupScreen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 2rem;
+  }
+  .setup-card {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    padding: 2rem 2.5rem; max-width: 520px; width: 100%;
+  }
+  .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; }
+  .setup-logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .setup-title { font-size: 1.2rem; font-weight: 800; }
+  .setup-sub { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.8; }
+  .setup-sub a { color: var(--amber); text-decoration: none; }
+  .setup-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .setup-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .setup-input {
+    background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
+    color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px;
+    padding: 9px 12px; outline: none; transition: border-color 0.2s; width: 100%;
+  }
+  .setup-input:focus { border-color: var(--amber); }
+  .setup-btn {
+    width: 100%; background: var(--amber); color: var(--bg); border: none; border-radius: 6px;
+    font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500;
+    padding: 10px; cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
+  }
+  .setup-btn:hover { opacity: 0.88; }
+  .setup-err { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); margin-top: 8px; display: none; }
+  .setup-steps { margin-bottom: 1.5rem; }
+  .setup-step { display: flex; gap: 10px; margin-bottom: 8px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .setup-step-num { background: var(--surface2); border: 1px solid var(--border); border-radius: 50%; width: 20px; height: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--amber); }
+
   /* ── HEADER ── */
   header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 2.5rem; gap: 1rem; }
-  .header-left {}
   .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
   .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
   h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
-  .subtitle { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* sync status */
+  .sync-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  .sync-dot.synced { background: var(--teal); }
+  .sync-dot.syncing { background: var(--amber); animation: pulse 0.8s ease-in-out infinite; }
+  .sync-dot.error { background: var(--red); }
+  .sync-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
 
   /* ── PHASE TOGGLE ── */
   .phase-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -82,9 +121,7 @@
     padding: 1rem 1.1rem; position: relative; overflow: hidden;
     animation: fadeUp 0.4s ease both;
   }
-  .stat-card::before {
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
   .stat-card.amber::before { background: var(--amber); }
   .stat-card.teal::before { background: var(--teal); }
   .stat-card.p1::before { background: var(--p1); }
@@ -96,82 +133,9 @@
   .stat-value.p1 { color: var(--p1); }
   .stat-value.p2 { color: var(--p2); }
   .stat-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 5px; }
-
-  /* progress bar */
   .progress-wrap { margin-top: 8px; }
   .progress-bar { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
   .progress-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
-
-  /* ── CHARTS ROW ── */
-  .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
-  @media (max-width: 700px) { .charts-row { grid-template-columns: 1fr; } }
-  .chart-card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 1.1rem 1.25rem;
-    animation: fadeUp 0.5s ease both;
-  }
-  .chart-title { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
-  .chart-wrap { position: relative; height: 200px; }
-
-  /* ── LOG SECTION ── */
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .section-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
-  .entry-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; }
-
-  /* ── ENTRY FORM ── */
-  .form-card {
-    background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius);
-    padding: 1.25rem; margin-bottom: 1.5rem;
-    animation: fadeUp 0.3s ease both;
-  }
-  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
-  .field { display: flex; flex-direction: column; gap: 5px; }
-  label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-  input, select {
-    background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
-    color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px;
-    padding: 8px 10px; outline: none; transition: border-color 0.2s;
-    width: 100%;
-  }
-  input:focus, select:focus { border-color: var(--amber); }
-  select option { background: var(--surface); }
-  .btn-add {
-    background: var(--amber); color: var(--bg); border: none; border-radius: 6px;
-    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
-    letter-spacing: 0.05em; padding: 9px 20px; cursor: pointer;
-    transition: opacity 0.2s, transform 0.1s; white-space: nowrap; align-self: end;
-  }
-  .btn-add:hover { opacity: 0.88; }
-  .btn-add:active { transform: scale(0.97); }
-
-  /* ── TABLE ── */
-  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; animation: fadeUp 0.6s ease both; }
-  table { width: 100%; border-collapse: collapse; font-family: 'DM Mono', monospace; font-size: 11px; }
-  thead { background: var(--surface2); }
-  th { padding: 10px 14px; text-align: left; color: var(--muted); font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid var(--border); }
-  td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
-  .phase-badge {
-    display: inline-block; padding: 2px 7px; border-radius: 4px;
-    font-size: 10px; font-weight: 500; letter-spacing: 0.05em;
-  }
-  .phase-badge.p1 { background: var(--p1-dim); color: var(--p1); border: 1px solid rgba(129,140,248,0.2); }
-  .phase-badge.p2 { background: var(--p2-dim); color: var(--p2); border: 1px solid rgba(52,211,153,0.2); }
-  .r-pos { color: var(--teal); }
-  .r-neg { color: var(--red); }
-  .btn-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: color 0.2s, background 0.2s; }
-  .btn-del:hover { color: var(--red); background: var(--red-dim); }
-  .empty-row td { text-align: center; color: var(--muted); padding: 2.5rem; }
-
-  /* ── EXPORT ── */
-  .toolbar { display: flex; gap: 8px; }
-  .btn-ghost {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px;
-    letter-spacing: 0.05em; padding: 6px 12px; cursor: pointer; transition: all 0.2s;
-  }
-  .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
 
   /* ── VELOCITY BANNER ── */
   .velocity-banner {
@@ -183,9 +147,7 @@
   }
   .velocity-banner.on-track { border-color: rgba(45,212,191,0.3); background: rgba(45,212,191,0.04); }
   .velocity-banner.off-track { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.04); }
-  .velocity-banner::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  }
+  .velocity-banner::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
   .velocity-banner.on-track::before { background: var(--teal); }
   .velocity-banner.off-track::before { background: var(--red); }
   .vel-main { display: flex; align-items: baseline; gap: 10px; }
@@ -193,30 +155,124 @@
   .vel-unit { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
   .vel-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
   .vel-meta { display: flex; gap: 2rem; flex-wrap: wrap; }
-  .vel-pill {
-    display: flex; flex-direction: column; gap: 2px;
-  }
+  .vel-pill { display: flex; flex-direction: column; gap: 2px; }
   .vel-pill-val { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
   .vel-pill-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
-  .vel-status {
-    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500;
-    padding: 4px 10px; border-radius: 4px; letter-spacing: 0.06em; white-space: nowrap; align-self: flex-start;
-  }
+  .vel-status { font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.06em; white-space: nowrap; align-self: flex-start; }
   .vel-status.ok { background: rgba(45,212,191,0.12); color: var(--teal); border: 1px solid rgba(45,212,191,0.2); }
   .vel-status.warn { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+
+  /* ── CHARTS ROW ── */
+  .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+  @media (max-width: 700px) { .charts-row { grid-template-columns: 1fr; } }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.25rem; animation: fadeUp 0.5s ease both; }
+  .chart-title { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
+  .chart-wrap { position: relative; height: 200px; }
+
+  /* ── FORM ── */
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
+  .entry-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; }
+  .form-card { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.5rem; animation: fadeUp 0.3s ease both; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  input, select {
+    background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
+    color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px;
+    padding: 8px 10px; outline: none; transition: border-color 0.2s; width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--amber); }
+  select option { background: var(--surface); }
+  .btn-add {
+    background: var(--amber); color: var(--bg); border: none; border-radius: 6px;
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.05em; padding: 9px 20px; cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s; white-space: nowrap; align-self: end;
+  }
+  .btn-add:hover { opacity: 0.88; }
+  .btn-add:active { transform: scale(0.97); }
+  .btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── TABLE ── */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; animation: fadeUp 0.6s ease both; }
+  table { width: 100%; border-collapse: collapse; font-family: 'DM Mono', monospace; font-size: 11px; }
+  thead { background: var(--surface2); }
+  th { padding: 10px 14px; text-align: left; color: var(--muted); font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .phase-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; letter-spacing: 0.05em; }
+  .phase-badge.p1 { background: var(--p1-dim); color: var(--p1); border: 1px solid rgba(129,140,248,0.2); }
+  .phase-badge.p2 { background: var(--p2-dim); color: var(--p2); border: 1px solid rgba(52,211,153,0.2); }
+  .r-pos { color: var(--teal); }
+  .r-neg { color: var(--red); }
+  .btn-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: color 0.2s, background 0.2s; }
+  .btn-del:hover { color: var(--red); background: var(--red-dim); }
+  .empty-row td { text-align: center; color: var(--muted); padding: 2.5rem; }
+
+  /* ── TOOLBAR ── */
+  .toolbar { display: flex; gap: 8px; }
+  .btn-ghost { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; padding: 6px 12px; cursor: pointer; transition: all 0.2s; }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
 
   @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
-<div id="app">
 
-  <!-- HEADER -->
+<!-- ── SETUP SCREEN ── -->
+<div id="setupScreen" style="display:none">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="setup-logo-dot"></div>
+      <div class="setup-title">Tracker · First-time Setup</div>
+    </div>
+    <div class="setup-sub">
+      Connect to Supabase so your data syncs across every browser and device.<br>
+      Takes ~5 minutes. <a href="https://supabase.com" target="_blank">supabase.com</a> is free.
+    </div>
+
+    <div class="setup-steps">
+      <div class="setup-step"><div class="setup-step-num">1</div><div>Go to <a href="https://supabase.com" target="_blank" style="color:var(--amber)">supabase.com</a> → New project → choose any name &amp; region</div></div>
+      <div class="setup-step"><div class="setup-step-num">2</div><div>In the left sidebar → <b style="color:var(--text)">SQL Editor</b> → paste and run this query:<br><br>
+        <code style="background:var(--bg);padding:8px 10px;border-radius:5px;display:block;font-size:10px;color:var(--teal);line-height:1.8;border:1px solid var(--border)">
+          create table entries (<br>
+          &nbsp;&nbsp;id bigint generated always as identity primary key,<br>
+          &nbsp;&nbsp;date text, week text, r numeric, trades int,<br>
+          &nbsp;&nbsp;wins int, losses int, phase text,<br>
+          &nbsp;&nbsp;created_at timestamptz default now()<br>
+          );
+        </code>
+      </div></div>
+      <div class="setup-step"><div class="setup-step-num">3</div><div>Project Settings → API → copy <b style="color:var(--text)">Project URL</b> and <b style="color:var(--text)">anon public</b> key below</div></div>
+    </div>
+
+    <div class="setup-field">
+      <div class="setup-label">Supabase Project URL</div>
+      <input class="setup-input" id="cfgUrl" placeholder="https://xxxxxxxxxxxx.supabase.co">
+    </div>
+    <div class="setup-field">
+      <div class="setup-label">Supabase Anon Key</div>
+      <input class="setup-input" id="cfgKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    </div>
+    <div class="setup-err" id="setupErr"></div>
+    <button class="setup-btn" onclick="connectSupabase()">Connect &amp; Continue →</button>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
+<div id="app" style="display:none">
+
   <header>
     <div class="header-left">
       <div class="logo-row">
         <div class="logo-dot"></div>
         <h1>Tracker</h1>
+      </div>
+      <div class="sync-row">
+        <div class="sync-dot" id="syncDot"></div>
+        <div class="sync-label" id="syncLabel">connecting...</div>
       </div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
@@ -227,17 +283,14 @@
       <div class="toolbar">
         <button class="btn-ghost" onclick="exportCSV()">↓ Export CSV</button>
         <button class="btn-ghost" onclick="clearAll()">✕ Clear All</button>
+        <button class="btn-ghost" onclick="resetConfig()">⚙ Reset DB</button>
       </div>
     </div>
   </header>
 
-  <!-- STATS -->
   <div class="stats-grid" id="statsGrid"></div>
-
-  <!-- VELOCITY BANNER -->
   <div id="velocityBanner"></div>
 
-  <!-- CHARTS -->
   <div class="charts-row">
     <div class="chart-card">
       <div class="chart-title">Weekly R · Performance Curve</div>
@@ -253,53 +306,30 @@
     </div>
   </div>
 
-  <!-- ENTRY FORM -->
   <div class="form-card">
     <div class="section-header" style="margin-bottom:14px">
       <div class="section-title">Log New Entry</div>
     </div>
     <div class="form-grid">
-      <div class="field">
-        <label>Date Attempted</label>
-        <input type="date" id="fDate">
-      </div>
-      <div class="field">
-        <label>Historical Week</label>
-        <input type="text" id="fWeek" placeholder="e.g. Week 3, Jan 2024">
-      </div>
-      <div class="field">
-        <label>Weekly R</label>
-        <input type="number" id="fR" step="0.01" placeholder="e.g. 2.4">
-      </div>
-      <div class="field">
-        <label>No. of Trades</label>
-        <input type="number" id="fTrades" min="0" placeholder="e.g. 5">
-      </div>
-      <div class="field">
-        <label>Winning Trades</label>
-        <input type="number" id="fWins" min="0" placeholder="e.g. 3">
-      </div>
-      <div class="field">
-        <label>Losing Trades</label>
-        <input type="number" id="fLosses" min="0" placeholder="e.g. 2">
-      </div>
-      <div class="field">
-        <label>Phase</label>
+      <div class="field"><label>Date Attempted</label><input type="date" id="fDate"></div>
+      <div class="field"><label>Historical Week</label><input type="text" id="fWeek" placeholder="e.g. Week 3, Jan 2024"></div>
+      <div class="field"><label>Weekly R</label><input type="number" id="fR" step="0.01" placeholder="e.g. 2.4"></div>
+      <div class="field"><label>No. of Trades</label><input type="number" id="fTrades" min="0" placeholder="e.g. 5"></div>
+      <div class="field"><label>Winning Trades</label><input type="number" id="fWins" min="0" placeholder="e.g. 3"></div>
+      <div class="field"><label>Losing Trades</label><input type="number" id="fLosses" min="0" placeholder="e.g. 2"></div>
+      <div class="field"><label>Phase</label>
         <select id="fPhase">
           <option value="P1">Phase 1 · Jan 2024–May 2026</option>
           <option value="P2">Phase 2 · Jan 2023–May 2026</option>
         </select>
       </div>
-      <button class="btn-add" onclick="addEntry()">+ Add Entry</button>
+      <button class="btn-add" id="addBtn" onclick="addEntry()">+ Add Entry</button>
     </div>
   </div>
 
-  <!-- TABLE -->
   <div class="section-header">
     <div class="section-title">Entry Log</div>
-    <div class="toolbar">
-      <span class="entry-count" id="entryCount">0 entries</span>
-    </div>
+    <span class="entry-count" id="entryCount">0 entries</span>
   </div>
   <div class="table-wrap">
     <table>
@@ -322,12 +352,59 @@
 </div>
 
 <script>
+// ── SUPABASE CONFIG ──
+const CONFIG_KEY = 'bt_supabase_config';
+let supabaseClient = null;
+
+function getSavedConfig() {
+  try { return JSON.parse(localStorage.getItem(CONFIG_KEY)); } catch(e) { return null; }
+}
+
+function saveConfig(url, key) {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify({ url, key }));
+}
+
+async function connectSupabase() {
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  const errEl = document.getElementById('setupErr');
+  errEl.style.display = 'none';
+
+  if (!url || !key) { errEl.textContent = 'Both fields are required.'; errEl.style.display = 'block'; return; }
+  if (!url.startsWith('https://')) { errEl.textContent = 'URL should start with https://'; errEl.style.display = 'block'; return; }
+
+  try {
+    supabaseClient = supabase.createClient(url, key);
+    // test connection
+    const { error } = await supabaseClient.from('entries').select('id').limit(1);
+    if (error) throw error;
+    saveConfig(url, key);
+    launchApp();
+  } catch(e) {
+    errEl.textContent = 'Connection failed: ' + (e.message || 'check your URL and key, and make sure the table exists.');
+    errEl.style.display = 'block';
+  }
+}
+
+function resetConfig() {
+  if (confirm('Disconnect from Supabase? Your data stays in the database.')) {
+    localStorage.removeItem(CONFIG_KEY);
+    location.reload();
+  }
+}
+
+function launchApp() {
+  document.getElementById('setupScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
+  loadEntries();
+}
+
 // ── CONFIG ──
 const PHASES = {
   P1: { label: 'Phase 1', start: new Date('2024-01-01'), end: new Date('2026-05-31'), deadline: new Date('2026-06-25'), startDate: new Date('2026-06-01'), color: '#818cf8', weeks: 0 },
   P2: { label: 'Phase 2', start: new Date('2023-01-01'), end: new Date('2026-05-31'), deadline: new Date('2026-07-31'), startDate: new Date('2026-06-26'), color: '#34d399', weeks: 0 },
 };
-// compute total weeks per phase
 Object.keys(PHASES).forEach(k => {
   const p = PHASES[k];
   PHASES[k].weeks = Math.round((p.end - p.start) / (7 * 24 * 3600 * 1000));
@@ -337,11 +414,100 @@ let activePhase = 'P1';
 let entries = [];
 let rChart, coverageChart, winChart;
 
-// ── STORAGE ──
-function save() { localStorage.setItem('bt_entries', JSON.stringify(entries)); }
-function load() {
-  const raw = localStorage.getItem('bt_entries');
-  if (raw) { try { entries = JSON.parse(raw); } catch(e) { entries = []; } }
+// ── SYNC STATUS ──
+function setSyncStatus(state, msg) {
+  const dot = document.getElementById('syncDot');
+  const label = document.getElementById('syncLabel');
+  dot.className = 'sync-dot ' + state;
+  label.textContent = msg;
+}
+
+// ── SUPABASE CRUD ──
+async function loadEntries() {
+  setSyncStatus('syncing', 'loading...');
+  try {
+    const { data, error } = await supabaseClient
+      .from('entries')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    entries = data.map(r => ({
+      id: r.id, date: r.date, week: r.week,
+      r: parseFloat(r.r), trades: r.trades,
+      wins: r.wins || 0, losses: r.losses || 0, phase: r.phase
+    }));
+    setSyncStatus('synced', 'synced · ' + new Date().toLocaleTimeString());
+    render();
+  } catch(e) {
+    setSyncStatus('error', 'sync error');
+    console.error(e);
+  }
+}
+
+async function addEntry() {
+  const date  = document.getElementById('fDate').value;
+  const week  = document.getElementById('fWeek').value.trim();
+  const r     = parseFloat(document.getElementById('fR').value);
+  const trades = parseInt(document.getElementById('fTrades').value);
+  const wins  = parseInt(document.getElementById('fWins').value) || 0;
+  const losses = parseInt(document.getElementById('fLosses').value) || 0;
+  const phase = document.getElementById('fPhase').value;
+
+  if (!date || !week || isNaN(r) || isNaN(trades)) { alert('Please fill all required fields.'); return; }
+
+  const btn = document.getElementById('addBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  setSyncStatus('syncing', 'saving...');
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('entries')
+      .insert([{ date, week, r, trades, wins, losses, phase }])
+      .select().single();
+    if (error) throw error;
+
+    entries.push({ id: data.id, date, week, r, trades, wins, losses, phase });
+    document.getElementById('fWeek').value = '';
+    document.getElementById('fR').value = '';
+    document.getElementById('fTrades').value = '';
+    document.getElementById('fWins').value = '';
+    document.getElementById('fLosses').value = '';
+    setSyncStatus('synced', 'synced · ' + new Date().toLocaleTimeString());
+    render();
+  } catch(e) {
+    setSyncStatus('error', 'save failed');
+    alert('Save failed: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '+ Add Entry';
+  }
+}
+
+async function deleteEntry(id) {
+  setSyncStatus('syncing', 'deleting...');
+  try {
+    const { error } = await supabaseClient.from('entries').delete().eq('id', id);
+    if (error) throw error;
+    entries = entries.filter(e => e.id !== id);
+    setSyncStatus('synced', 'synced · ' + new Date().toLocaleTimeString());
+    render();
+  } catch(e) {
+    setSyncStatus('error', 'delete failed');
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+async function clearAll() {
+  if (!confirm('Delete ALL entries from the database? This cannot be undone.')) return;
+  setSyncStatus('syncing', 'clearing...');
+  try {
+    const { error } = await supabaseClient.from('entries').delete().neq('id', 0);
+    if (error) throw error;
+    entries = [];
+    setSyncStatus('synced', 'cleared');
+    render();
+  } catch(e) {
+    setSyncStatus('error', 'clear failed');
+  }
 }
 
 // ── PHASE TOGGLE ──
@@ -353,56 +519,14 @@ function setPhase(p) {
   render();
 }
 
-// ── ADD / DELETE ──
-function addEntry() {
-  const date = document.getElementById('fDate').value;
-  const week = document.getElementById('fWeek').value.trim();
-  const r = parseFloat(document.getElementById('fR').value);
-  const trades = parseInt(document.getElementById('fTrades').value);
-  const wins = parseInt(document.getElementById('fWins').value) || 0;
-  const losses = parseInt(document.getElementById('fLosses').value) || 0;
-  const phase = document.getElementById('fPhase').value;
-
-  if (!date || !week || isNaN(r) || isNaN(trades)) {
-    alert('Please fill all fields.');
-    return;
-  }
-  entries.push({ id: Date.now(), date, week, r, trades, wins, losses, phase });
-  save();
-  // clear inputs except date/phase
-  document.getElementById('fWeek').value = '';
-  document.getElementById('fR').value = '';
-  document.getElementById('fTrades').value = '';
-  document.getElementById('fWins').value = '';
-  document.getElementById('fLosses').value = '';
-  render();
-}
-
-function deleteEntry(id) {
-  entries = entries.filter(e => e.id !== id);
-  save();
-  render();
-}
-
-function clearAll() {
-  if (confirm('Delete all entries? This cannot be undone.')) {
-    entries = [];
-    save();
-    render();
-  }
-}
-
 // ── STATS ──
 function computeStats(phase) {
   const ph = entries.filter(e => e.phase === phase);
   const totalWeeks = PHASES[phase].weeks;
   const logged = ph.length;
   const pct = totalWeeks > 0 ? ((logged / totalWeeks) * 100).toFixed(1) : '0.0';
-
-  // dates attempted (unique days)
   const uniqueDays = new Set(ph.map(e => e.date)).size;
   const avgDaily = uniqueDays > 0 ? (logged / uniqueDays).toFixed(2) : '0.00';
-
   const totalR = ph.reduce((s, e) => s + e.r, 0);
   const avgR = logged > 0 ? (totalR / logged).toFixed(2) : '0.00';
   const totalTrades = ph.reduce((s, e) => s + e.trades, 0);
@@ -410,12 +534,10 @@ function computeStats(phase) {
   const totalLosses = ph.reduce((s, e) => s + (e.losses || 0), 0);
   const winPct = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(1) : '0.0';
 
-  // deadline math
   const today = new Date(); today.setHours(0,0,0,0);
   const deadline = PHASES[phase].deadline;
   const phaseStart = PHASES[phase].startDate;
   const effectiveStart = today >= phaseStart ? today : phaseStart;
-  const totalPhaseDays = Math.max(1, Math.ceil((deadline - phaseStart) / (24 * 3600 * 1000)));
   const daysLeft = Math.max(0, Math.ceil((deadline - effectiveStart) / (24 * 3600 * 1000)));
   const weeksLeft = Math.max(0, totalWeeks - logged);
   const requiredRate = daysLeft > 0 ? (weeksLeft / daysLeft) : weeksLeft;
@@ -436,9 +558,7 @@ function renderStats() {
     <div class="stat-card ${col}" style="animation-delay:0s">
       <div class="stat-label">Progress</div>
       <div class="stat-value ${col}">${s.pct}%</div>
-      <div class="progress-wrap">
-        <div class="progress-bar"><div class="progress-fill" style="width:${fillPct}%;background:${accentColor}"></div></div>
-      </div>
+      <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${fillPct}%;background:${accentColor}"></div></div></div>
       <div class="stat-sub">${s.logged} / ${s.totalWeeks} weeks</div>
     </div>
     <div class="stat-card amber" style="animation-delay:0.05s">
@@ -456,18 +576,16 @@ function renderStats() {
       <div class="stat-value" style="color:var(--text)">${s.totalTrades}</div>
       <div class="stat-sub">${s.logged > 0 ? (s.totalTrades / s.logged).toFixed(1) : '0'} avg per week</div>
     </div>
-    <div class="stat-card" style="animation-delay:0.2s; --accent:#2dd4bf">
+    <div class="stat-card" style="animation-delay:0.2s">
       <div class="stat-label">Win Rate</div>
       <div class="stat-value" style="color:${parseFloat(s.winPct) >= 50 ? 'var(--teal)' : 'var(--red)'}">${s.winPct}%</div>
-      <div class="progress-wrap">
-        <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(parseFloat(s.winPct),100)}%;background:${parseFloat(s.winPct) >= 50 ? 'var(--teal)' : 'var(--red)'}"></div></div>
-      </div>
+      <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(parseFloat(s.winPct),100)}%;background:${parseFloat(s.winPct) >= 50 ? 'var(--teal)' : 'var(--red)'}"></div></div></div>
       <div class="stat-sub">${s.totalWins}W · ${s.totalLosses}L</div>
     </div>
   `;
 }
 
-// ── RENDER VELOCITY BANNER ──
+// ── RENDER VELOCITY ──
 function renderVelocity() {
   const s = computeStats(activePhase);
   const phaseColor = activePhase === 'P1' ? 'var(--p1)' : 'var(--p2)';
@@ -489,22 +607,10 @@ function renderVelocity() {
         </div>
       </div>
       <div class="vel-meta">
-        <div class="vel-pill">
-          <div class="vel-pill-val" style="color:var(--amber)">${s.weeksLeft}</div>
-          <div class="vel-pill-sub">weeks remaining</div>
-        </div>
-        <div class="vel-pill">
-          <div class="vel-pill-val" style="color:${phaseColor}">${s.daysLeft}</div>
-          <div class="vel-pill-sub">days to deadline</div>
-        </div>
-        <div class="vel-pill">
-          <div class="vel-pill-val" style="color:var(--muted)">${s.avgDaily}</div>
-          <div class="vel-pill-sub">your avg pace</div>
-        </div>
-        <div class="vel-pill">
-          <div class="vel-pill-val" style="color:${deltaColor}">${deltaSign}${delta}</div>
-          <div class="vel-pill-sub">pace delta</div>
-        </div>
+        <div class="vel-pill"><div class="vel-pill-val" style="color:var(--amber)">${s.weeksLeft}</div><div class="vel-pill-sub">weeks remaining</div></div>
+        <div class="vel-pill"><div class="vel-pill-val" style="color:${phaseColor}">${s.daysLeft}</div><div class="vel-pill-sub">days to deadline</div></div>
+        <div class="vel-pill"><div class="vel-pill-val" style="color:var(--muted)">${s.avgDaily}</div><div class="vel-pill-sub">your avg pace</div></div>
+        <div class="vel-pill"><div class="vel-pill-val" style="color:${deltaColor}">${deltaSign}${delta}</div><div class="vel-pill-sub">pace delta</div></div>
       </div>
       <div class="vel-status ${statusClass}">${statusText}</div>
     </div>
@@ -518,17 +624,15 @@ function renderTable() {
   document.getElementById('entryCount').textContent = `${filtered.length} entries`;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No entries yet for ${PHASES[activePhase].label}. Add your first backtested week above.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No entries yet for ${PHASES[activePhase].label}.</td></tr>`;
     return;
   }
-
   tbody.innerHTML = filtered.map(e => {
     const wins = e.wins || 0;
     const losses = e.losses || 0;
     const wp = e.trades > 0 ? ((wins / e.trades) * 100).toFixed(0) : '—';
     const wpColor = e.trades > 0 ? (wins / e.trades >= 0.5 ? 'color:var(--teal)' : 'color:var(--red)') : '';
-    return `
-    <tr>
+    return `<tr>
       <td>${e.date}</td>
       <td>${e.week}</td>
       <td class="${e.r >= 0 ? 'r-pos' : 'r-neg'}">${e.r >= 0 ? '+' : ''}${e.r}R</td>
@@ -555,129 +659,48 @@ function renderCharts() {
     type: 'line',
     data: {
       labels: sorted.map(e => e.week),
-      datasets: [{
-        label: 'Weekly R',
-        data: sorted.map(e => e.r),
-        borderColor: accentColor,
-        backgroundColor: dimColor,
-        borderWidth: 1.5,
-        pointRadius: 3,
-        pointBackgroundColor: accentColor,
-        fill: true,
-        tension: 0.3,
-      }]
+      datasets: [{ label: 'Weekly R', data: sorted.map(e => e.r), borderColor: accentColor, backgroundColor: dimColor, borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: accentColor, fill: true, tension: 0.3 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        titleColor: '#6b7280', bodyColor: '#e8eaf0',
-        titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 },
-        callbacks: { label: ctx => ` ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y}R` }
-      }},
-      scales: {
-        x: { display: false },
-        y: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, callback: v => v + 'R' },
-          border: { color: 'transparent' }
-        }
-      }
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#6b7280', bodyColor: '#e8eaf0', titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 }, callbacks: { label: ctx => ` ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y}R` } } },
+      scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, callback: v => v + 'R' }, border: { color: 'transparent' } } }
     }
   });
 
-  // Coverage chart — group by ISO calendar week
+  // Coverage chart
   const coverageMap = {};
   ph.forEach(e => {
     const d = new Date(e.date);
-    const yr = d.getFullYear();
     const wk = getISOWeek(d);
-    const key = `${yr}-W${String(wk).padStart(2,'0')}`;
+    const key = `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
     coverageMap[key] = (coverageMap[key] || 0) + 1;
   });
   const covKeys = Object.keys(coverageMap).sort();
-  const covVals = covKeys.map(k => coverageMap[k]);
 
   const covCtx = document.getElementById('coverageChart').getContext('2d');
   if (coverageChart) coverageChart.destroy();
   coverageChart = new Chart(covCtx, {
     type: 'bar',
-    data: {
-      labels: covKeys,
-      datasets: [{
-        label: 'Weeks logged',
-        data: covVals,
-        backgroundColor: dimColor,
-        borderColor: accentColor,
-        borderWidth: 1,
-        borderRadius: 3,
-      }]
-    },
+    data: { labels: covKeys, datasets: [{ label: 'Weeks logged', data: covKeys.map(k => coverageMap[k]), backgroundColor: dimColor, borderColor: accentColor, borderWidth: 1, borderRadius: 3 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        titleColor: '#6b7280', bodyColor: '#e8eaf0',
-        titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 },
-        callbacks: { label: ctx => ` ${ctx.parsed.y} hist. weeks` }
-      }},
-      scales: {
-        x: { ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 }, grid: { display: false }, border: { color: 'transparent' } },
-        y: {
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, stepSize: 1 },
-          border: { color: 'transparent' }
-        }
-      }
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#6b7280', bodyColor: '#e8eaf0', titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 }, callbacks: { label: ctx => ` ${ctx.parsed.y} hist. weeks` } } },
+      scales: { x: { ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 }, grid: { display: false }, border: { color: 'transparent' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, stepSize: 1 }, border: { color: 'transparent' } } }
     }
   });
 
-  // Win% chart — bar per historical week
-  const winData = sorted.map(e => {
-    if (!e.trades || e.trades === 0) return null;
-    return parseFloat(((( e.wins || 0) / e.trades) * 100).toFixed(1));
-  });
-  const winColors = winData.map(v => v === null ? 'rgba(255,255,255,0.05)' : (v >= 50 ? 'rgba(45,212,191,0.25)' : 'rgba(248,113,113,0.25)'));
-  const winBorders = winData.map(v => v === null ? 'transparent' : (v >= 50 ? '#2dd4bf' : '#f87171'));
-
+  // Win% chart
+  const winData = sorted.map(e => (!e.trades || e.trades === 0) ? null : parseFloat(((e.wins || 0) / e.trades * 100).toFixed(1)));
   const winCtx = document.getElementById('winChart').getContext('2d');
   if (winChart) winChart.destroy();
   winChart = new Chart(winCtx, {
     type: 'bar',
-    data: {
-      labels: sorted.map(e => e.week),
-      datasets: [{
-        label: 'Win %',
-        data: winData,
-        backgroundColor: winColors,
-        borderColor: winBorders,
-        borderWidth: 1,
-        borderRadius: 3,
-      }]
-    },
+    data: { labels: sorted.map(e => e.week), datasets: [{ label: 'Win %', data: winData, backgroundColor: winData.map(v => v === null ? 'rgba(255,255,255,0.05)' : (v >= 50 ? 'rgba(45,212,191,0.25)' : 'rgba(248,113,113,0.25)')), borderColor: winData.map(v => v === null ? 'transparent' : (v >= 50 ? '#2dd4bf' : '#f87171')), borderWidth: 1, borderRadius: 3 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        titleColor: '#6b7280', bodyColor: '#e8eaf0',
-        titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 },
-        callbacks: {
-          title: ctx => sorted[ctx[0].dataIndex]?.week || '',
-          label: ctx => {
-            const e = sorted[ctx.dataIndex];
-            return ` ${ctx.parsed.y}%  (${e.wins||0}W / ${e.losses||0}L)`;
-          }
-        }
-      }},
-      scales: {
-        x: { display: false },
-        y: {
-          min: 0, max: 100,
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, callback: v => v + '%' },
-          border: { color: 'transparent' }
-        }
-      }
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#6b7280', bodyColor: '#e8eaf0', titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 }, callbacks: { title: ctx => sorted[ctx[0].dataIndex]?.week || '', label: ctx => { const e = sorted[ctx.dataIndex]; return ` ${ctx.parsed.y}%  (${e.wins||0}W / ${e.losses||0}L)`; } } } },
+      scales: { x: { display: false }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, callback: v => v + '%' }, border: { color: 'transparent' } } }
     }
   });
 }
@@ -694,7 +717,7 @@ function exportCSV() {
   const ph = entries.filter(e => e.phase === activePhase);
   if (ph.length === 0) { alert('No entries to export.'); return; }
   const header = 'Date Attempted,Historical Week,Weekly R,Trades,Wins,Losses,Win%,Phase\n';
-  const rows = ph.map(e => { const wp = e.trades > 0 ? ((( e.wins||0)/e.trades)*100).toFixed(1)+'%' : ''; return `${e.date},"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},${e.phase}`; }).join('\n');
+  const rows = ph.map(e => { const wp = e.trades > 0 ? ((e.wins||0)/e.trades*100).toFixed(1)+'%' : ''; return `${e.date},"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},${e.phase}`; }).join('\n');
   const blob = new Blob([header + rows], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -711,14 +734,12 @@ function render() {
 }
 
 // ── INIT ──
-function init() {
-  load();
-  // set today's date as default
-  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
-  render();
-}
-
-init();
+(function init() {
+  const SUPABASE_URL = 'https://tgnscgitbjvxugolwinx.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbnNjZ2l0Ymp2eHVnb2x3aW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNDM2NTEsImV4cCI6MjA5NTgxOTY1MX0.WZssvCxF6F_v2z-ncJ5pSnaOTW297py0cPyfc6FIj1Y';
+  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  launchApp();
+})();
 </script>
 </body>
 </html>
