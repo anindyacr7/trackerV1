@@ -22,10 +22,6 @@
     --teal-dim: rgba(45,212,191,0.1);
     --red: #f87171;
     --red-dim: rgba(248,113,113,0.1);
-    --p1: #818cf8;
-    --p1-dim: rgba(129,140,248,0.12);
-    --p2: #34d399;
-    --p2-dim: rgba(52,211,153,0.12);
     --radius: 8px;
   }
 
@@ -61,7 +57,7 @@
   }
   .setup-card {
     background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
-    padding: 2rem 2.5rem; max-width: 520px; width: 100%;
+    padding: 2rem 2.5rem; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto;
   }
   .setup-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; }
   .setup-logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
@@ -70,31 +66,32 @@
   .setup-sub a { color: var(--amber); text-decoration: none; }
   .setup-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
   .setup-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-  .setup-input {
+  .setup-input, .setup-textarea {
     background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
     color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px;
     padding: 9px 12px; outline: none; transition: border-color 0.2s; width: 100%;
   }
-  .setup-input:focus { border-color: var(--amber); }
+  .setup-textarea { resize: vertical; min-height: 60px; font-family: 'Syne', sans-serif; font-size: 13px; }
+  .setup-input:focus, .setup-textarea:focus { border-color: var(--amber); }
   .setup-btn {
     width: 100%; background: var(--amber); color: var(--bg); border: none; border-radius: 6px;
     font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500;
     padding: 10px; cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
   }
   .setup-btn:hover { opacity: 0.88; }
+  .setup-btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
   .setup-err { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--red); margin-top: 8px; display: none; }
   .setup-steps { margin-bottom: 1.5rem; }
   .setup-step { display: flex; gap: 10px; margin-bottom: 8px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); line-height: 1.6; }
   .setup-step-num { background: var(--surface2); border: 1px solid var(--border); border-radius: 50%; width: 20px; height: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--amber); }
 
   /* ── HEADER ── */
-  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 2.5rem; gap: 1rem; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
   .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
   .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
   h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
 
-  /* sync status */
   .sync-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
   .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
   .sync-dot.synced { background: var(--teal); }
@@ -102,8 +99,37 @@
   .sync-dot.error { background: var(--red); }
   .sync-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
 
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-ghost { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; padding: 6px 12px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
+  .btn-ghost.accent { color: var(--amber); border-color: rgba(240,165,0,0.3); }
+
+  /* ── STRATEGY BAR ── */
+  .strategy-bar {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius);
+    padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+  }
+  .strategy-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .strategy-select-wrap { position: relative; flex: 1; min-width: 200px; }
+  select#strategySelect {
+    background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
+    color: var(--text); font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+    padding: 8px 12px; outline: none; width: 100%; cursor: pointer;
+  }
+  select#strategySelect:focus { border-color: var(--amber); }
+  .strategy-desc {
+    font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);
+    margin-top: 10px; line-height: 1.7; padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .strategy-desc.empty { font-style: italic; opacity: 0.6; }
+  .empty-state {
+    text-align: center; padding: 3rem 1.5rem; color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 12px;
+  }
+  .empty-state .btn-add { margin-top: 1rem; }
+
   /* ── PHASE TOGGLE ── */
-  .phase-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .phase-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; flex-wrap: wrap; }
   .phase-btn {
     padding: 8px 18px; cursor: pointer; border: none; background: transparent;
     font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.05em;
@@ -111,8 +137,6 @@
   }
   .phase-btn:hover { color: var(--text); background: var(--surface2); }
   .phase-btn.active { color: var(--bg); font-weight: 500; }
-  .phase-btn.active.p1 { background: var(--p1); }
-  .phase-btn.active.p2 { background: var(--p2); }
 
   /* ── STAT CARDS ── */
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
@@ -121,17 +145,9 @@
     padding: 1rem 1.1rem; position: relative; overflow: hidden;
     animation: fadeUp 0.4s ease both;
   }
-  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
-  .stat-card.amber::before { background: var(--amber); }
-  .stat-card.teal::before { background: var(--teal); }
-  .stat-card.p1::before { background: var(--p1); }
-  .stat-card.p2::before { background: var(--p2); }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--phase-color, var(--amber)); }
   .stat-label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
   .stat-value { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
-  .stat-value.amber { color: var(--amber); }
-  .stat-value.teal { color: var(--teal); }
-  .stat-value.p1 { color: var(--p1); }
-  .stat-value.p2 { color: var(--p2); }
   .stat-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 5px; }
   .progress-wrap { margin-top: 8px; }
   .progress-bar { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
@@ -170,19 +186,19 @@
   .chart-wrap { position: relative; height: 200px; }
 
   /* ── FORM ── */
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
   .section-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
   .entry-count { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; }
   .form-card { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.5rem; animation: fadeUp 0.3s ease both; }
   .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 5px; }
   label { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-  input, select {
+  input, select, textarea {
     background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
     color: var(--text); font-family: 'DM Mono', monospace; font-size: 12px;
     padding: 8px 10px; outline: none; transition: border-color 0.2s; width: 100%;
   }
-  input:focus, select:focus { border-color: var(--amber); }
+  input:focus, select:focus, textarea:focus { border-color: var(--amber); }
   select option { background: var(--surface); }
   .btn-add {
     background: var(--amber); color: var(--bg); border: none; border-radius: 6px;
@@ -195,26 +211,47 @@
   .btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* ── TABLE ── */
-  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; animation: fadeUp 0.6s ease both; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; overflow-x: auto; animation: fadeUp 0.6s ease both; }
   table { width: 100%; border-collapse: collapse; font-family: 'DM Mono', monospace; font-size: 11px; }
   thead { background: var(--surface2); }
-  th { padding: 10px 14px; text-align: left; color: var(--muted); font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid var(--border); }
+  th { padding: 10px 14px; text-align: left; color: var(--muted); font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: rgba(255,255,255,0.02); }
-  .phase-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; letter-spacing: 0.05em; }
-  .phase-badge.p1 { background: var(--p1-dim); color: var(--p1); border: 1px solid rgba(129,140,248,0.2); }
-  .phase-badge.p2 { background: var(--p2-dim); color: var(--p2); border: 1px solid rgba(52,211,153,0.2); }
+  .phase-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 500; letter-spacing: 0.05em; border: 1px solid var(--border2); }
   .r-pos { color: var(--teal); }
   .r-neg { color: var(--red); }
   .btn-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: color 0.2s, background 0.2s; }
   .btn-del:hover { color: var(--red); background: var(--red-dim); }
   .empty-row td { text-align: center; color: var(--muted); padding: 2.5rem; }
 
-  /* ── TOOLBAR ── */
-  .toolbar { display: flex; gap: 8px; }
-  .btn-ghost { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.05em; padding: 6px 12px; cursor: pointer; transition: all 0.2s; }
-  .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
+  /* ── MODAL ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+  }
+  .modal-card {
+    background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+    padding: 1.75rem 2rem; max-width: 640px; width: 100%; max-height: 85vh; overflow-y: auto;
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+  .modal-title { font-size: 1.05rem; font-weight: 800; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; padding: 4px; }
+  .modal-close:hover { color: var(--text); }
+  .phase-row {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.9rem 1rem; margin-bottom: 10px;
+  }
+  .phase-row-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  .phase-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn-small {
+    font-family: 'DM Mono', monospace; font-size: 10px; padding: 5px 10px; border-radius: 5px;
+    cursor: pointer; border: 1px solid var(--border2); background: var(--bg); color: var(--text);
+  }
+  .btn-small:hover { border-color: var(--amber); }
+  .btn-small.danger:hover { border-color: var(--red); color: var(--red); }
+  .modal-divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+  .modal-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
 
   @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
@@ -236,14 +273,39 @@
     <div class="setup-steps">
       <div class="setup-step"><div class="setup-step-num">1</div><div>Go to <a href="https://supabase.com" target="_blank" style="color:var(--amber)">supabase.com</a> → New project → choose any name &amp; region</div></div>
       <div class="setup-step"><div class="setup-step-num">2</div><div>In the left sidebar → <b style="color:var(--text)">SQL Editor</b> → paste and run this query:<br><br>
-        <code style="background:var(--bg);padding:8px 10px;border-radius:5px;display:block;font-size:10px;color:var(--teal);line-height:1.8;border:1px solid var(--border)">
-          create table entries (<br>
-          &nbsp;&nbsp;id bigint generated always as identity primary key,<br>
-          &nbsp;&nbsp;date text, week text, r numeric, trades int,<br>
-          &nbsp;&nbsp;wins int, losses int, phase text,<br>
-          &nbsp;&nbsp;created_at timestamptz default now()<br>
-          );
-        </code>
+        <code style="background:var(--bg);padding:8px 10px;border-radius:5px;display:block;font-size:9px;color:var(--teal);line-height:1.7;border:1px solid var(--border);white-space:pre-wrap">create table strategies (
+  id bigint generated always as identity primary key,
+  name text not null,
+  description text,
+  created_at timestamptz default now()
+);
+
+create table phases (
+  id bigint generated always as identity primary key,
+  strategy_id bigint references strategies(id) on delete cascade,
+  label text not null,
+  backtest_start date not null,
+  backtest_end date not null,
+  deadline date not null,
+  effective_start date,
+  sort_order int default 0,
+  created_at timestamptz default now()
+);
+
+create table entries (
+  id bigint generated always as identity primary key,
+  phase_id bigint references phases(id) on delete cascade,
+  date text, week text, r numeric, trades int,
+  wins int, losses int,
+  created_at timestamptz default now()
+);
+
+alter table strategies enable row level security;
+alter table phases enable row level security;
+alter table entries enable row level security;
+create policy "allow all" on strategies for all using (true) with check (true);
+create policy "allow all" on phases for all using (true) with check (true);
+create policy "allow all" on entries for all using (true) with check (true);</code>
       </div></div>
       <div class="setup-step"><div class="setup-step-num">3</div><div>Project Settings → API → copy <b style="color:var(--text)">Project URL</b> and <b style="color:var(--text)">anon public</b> key below</div></div>
     </div>
@@ -261,6 +323,49 @@
   </div>
 </div>
 
+<!-- ── NEW STRATEGY MODAL ── -->
+<div class="modal-overlay" id="strategyModal" style="display:none">
+  <div class="modal-card" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="strategyModalTitle">New Strategy</div>
+      <button class="modal-close" onclick="closeStrategyModal()">×</button>
+    </div>
+    <div class="setup-field">
+      <div class="setup-label">Strategy Name</div>
+      <input class="setup-input" id="stratName" placeholder="e.g. BTC Multi-TF Reversal/Continuation">
+    </div>
+    <div class="setup-field">
+      <div class="setup-label">Description</div>
+      <textarea class="setup-textarea" id="stratDesc" placeholder="What this strategy does, the framework it uses, rules, context..."></textarea>
+    </div>
+    <div class="setup-err" id="stratErr"></div>
+    <button class="setup-btn" onclick="saveStrategy()" id="stratSaveBtn">Save Strategy</button>
+  </div>
+</div>
+
+<!-- ── PHASE MANAGEMENT MODAL ── -->
+<div class="modal-overlay" id="phaseModal" style="display:none">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">Manage Phases</div>
+      <button class="modal-close" onclick="closePhaseModal()">×</button>
+    </div>
+    <div class="modal-sub">Existing Phases</div>
+    <div id="phaseList"></div>
+
+    <hr class="modal-divider">
+    <div class="modal-sub">Add New Phase</div>
+    <div class="phase-row-grid">
+      <div class="field"><label>Label</label><input type="text" id="npLabel" placeholder="e.g. Phase 3"></div>
+      <div class="field"><label>Backtest Start</label><input type="date" id="npStart"></div>
+      <div class="field"><label>Backtest End</label><input type="date" id="npEnd"></div>
+      <div class="field"><label>Deadline</label><input type="date" id="npDeadline"></div>
+      <div class="field"><label>Effective Start</label><input type="date" id="npEffStart"></div>
+    </div>
+    <button class="setup-btn" onclick="addPhase()">+ Add Phase</button>
+  </div>
+</div>
+
 <!-- ── MAIN APP ── -->
 <div id="app" style="display:none">
 
@@ -275,78 +380,27 @@
         <div class="sync-label" id="syncLabel">connecting...</div>
       </div>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-      <div class="phase-toggle">
-        <button class="phase-btn p1 active" onclick="setPhase('P1')">Phase 1</button>
-        <button class="phase-btn p2" onclick="setPhase('P2')">Phase 2</button>
-      </div>
-      <div class="toolbar">
-        <button class="btn-ghost" onclick="exportCSV()">↓ Export CSV</button>
-        <button class="btn-ghost" onclick="clearAll()">✕ Clear All</button>
-        <button class="btn-ghost" onclick="resetConfig()">⚙ Reset DB</button>
-      </div>
+    <div class="toolbar">
+      <button class="btn-ghost" onclick="exportCSV()">↓ Export CSV</button>
+      <button class="btn-ghost" onclick="clearAll()">✕ Clear Phase Entries</button>
+      <button class="btn-ghost" onclick="resetConfig()">⚙ Reset DB</button>
     </div>
   </header>
 
-  <div class="stats-grid" id="statsGrid"></div>
-  <div id="velocityBanner"></div>
-
-  <div class="charts-row">
-    <div class="chart-card">
-      <div class="chart-title">Weekly R · Performance Curve</div>
-      <div class="chart-wrap"><canvas id="rChart" role="img" aria-label="Line chart of weekly R over time"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">Coverage · Weeks Logged Per Calendar Week</div>
-      <div class="chart-wrap"><canvas id="coverageChart" role="img" aria-label="Bar chart of weeks logged per calendar week"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">Win % · Per Historical Week</div>
-      <div class="chart-wrap"><canvas id="winChart" role="img" aria-label="Bar chart of win percentage per historical week"></canvas></div>
-    </div>
-  </div>
-
-  <div class="form-card">
-    <div class="section-header" style="margin-bottom:14px">
-      <div class="section-title">Log New Entry</div>
-    </div>
-    <div class="form-grid">
-      <div class="field"><label>Date Attempted</label><input type="date" id="fDate"></div>
-      <div class="field"><label>Historical Week</label><input type="text" id="fWeek" placeholder="e.g. Week 3, Jan 2024"></div>
-      <div class="field"><label>Weekly R</label><input type="number" id="fR" step="0.01" placeholder="e.g. 2.4"></div>
-      <div class="field"><label>No. of Trades</label><input type="number" id="fTrades" min="0" placeholder="e.g. 5"></div>
-      <div class="field"><label>Winning Trades</label><input type="number" id="fWins" min="0" placeholder="e.g. 3"></div>
-      <div class="field"><label>Losing Trades</label><input type="number" id="fLosses" min="0" placeholder="e.g. 2"></div>
-      <div class="field"><label>Phase</label>
-        <select id="fPhase">
-          <option value="P1">Phase 1 · Jan 2024–May 2026</option>
-          <option value="P2">Phase 2 · Jan 2023–May 2026</option>
-        </select>
+  <!-- Strategy selector -->
+  <div class="strategy-bar">
+    <div class="strategy-top">
+      <div class="strategy-select-wrap">
+        <select id="strategySelect" onchange="onStrategyChange()"></select>
       </div>
-      <button class="btn-add" id="addBtn" onclick="addEntry()">+ Add Entry</button>
+      <button class="btn-ghost" onclick="openStrategyModal('new')">+ New Strategy</button>
+      <button class="btn-ghost" id="editStrategyBtn" onclick="openStrategyModal('edit')">Edit</button>
     </div>
+    <div class="strategy-desc" id="strategyDesc"></div>
   </div>
 
-  <div class="section-header">
-    <div class="section-title">Entry Log</div>
-    <span class="entry-count" id="entryCount">0 entries</span>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Date Attempted</th>
-          <th>Historical Week</th>
-          <th>Weekly R</th>
-          <th>Trades</th>
-          <th>W / L</th>
-          <th>Win %</th>
-          <th>Phase</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="tableBody"></tbody>
-    </table>
+  <div id="mainContent">
+    <!-- populated dynamically once a strategy + phase is selected -->
   </div>
 
 </div>
@@ -359,7 +413,6 @@ let supabaseClient = null;
 function getSavedConfig() {
   try { return JSON.parse(localStorage.getItem(CONFIG_KEY)); } catch(e) { return null; }
 }
-
 function saveConfig(url, key) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify({ url, key }));
 }
@@ -375,13 +428,12 @@ async function connectSupabase() {
 
   try {
     supabaseClient = supabase.createClient(url, key);
-    // test connection
-    const { error } = await supabaseClient.from('entries').select('id').limit(1);
+    const { error } = await supabaseClient.from('strategies').select('id').limit(1);
     if (error) throw error;
     saveConfig(url, key);
     launchApp();
   } catch(e) {
-    errEl.textContent = 'Connection failed: ' + (e.message || 'check your URL and key, and make sure the table exists.');
+    errEl.textContent = 'Connection failed: ' + (e.message || 'check your URL and key, and make sure the tables exist.');
     errEl.style.display = 'block';
   }
 }
@@ -396,23 +448,19 @@ function resetConfig() {
 function launchApp() {
   document.getElementById('setupScreen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
-  loadEntries();
+  loadStrategies();
 }
 
-// ── CONFIG ──
-const PHASES = {
-  P1: { label: 'Phase 1', start: new Date('2024-01-01'), end: new Date('2026-05-31'), deadline: new Date('2026-06-25'), startDate: new Date('2026-06-01'), color: '#818cf8', weeks: 0 },
-  P2: { label: 'Phase 2', start: new Date('2023-01-01'), end: new Date('2026-05-31'), deadline: new Date('2026-07-31'), startDate: new Date('2026-06-26'), color: '#34d399', weeks: 0 },
-};
-Object.keys(PHASES).forEach(k => {
-  const p = PHASES[k];
-  PHASES[k].weeks = Math.round((p.end - p.start) / (7 * 24 * 3600 * 1000));
-});
-
-let activePhase = 'P1';
+// ── STATE ──
+let strategies = [];
+let phases = [];
 let entries = [];
+let activeStrategyId = null;
+let activePhaseId = null;
 let rChart, coverageChart, winChart;
+
+const PALETTE = ['#818cf8', '#34d399', '#f0a500', '#f472b6', '#60a5fa', '#fb923c', '#a78bfa', '#4ade80'];
+function colorFor(index) { return PALETTE[index % PALETTE.length]; }
 
 // ── SYNC STATUS ──
 function setSyncStatus(state, msg) {
@@ -422,22 +470,237 @@ function setSyncStatus(state, msg) {
   label.textContent = msg;
 }
 
-// ── SUPABASE CRUD ──
-async function loadEntries() {
-  setSyncStatus('syncing', 'loading...');
+// ── STRATEGY CRUD ──
+async function loadStrategies() {
+  setSyncStatus('syncing', 'loading strategies...');
   try {
-    const { data, error } = await supabaseClient
-      .from('entries')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const { data, error } = await supabaseClient.from('strategies').select('*').order('created_at', { ascending: true });
+    if (error) throw error;
+    strategies = data;
+    setSyncStatus('synced', 'synced · ' + new Date().toLocaleTimeString());
+
+    if (strategies.length === 0) {
+      renderNoStrategyState();
+      return;
+    }
+    if (!activeStrategyId || !strategies.find(s => s.id === activeStrategyId)) {
+      activeStrategyId = strategies[0].id;
+    }
+    renderStrategySelect();
+    await loadPhases(activeStrategyId);
+  } catch(e) {
+    setSyncStatus('error', 'sync error');
+    console.error(e);
+  }
+}
+
+function renderStrategySelect() {
+  const sel = document.getElementById('strategySelect');
+  sel.innerHTML = strategies.map(s => `<option value="${s.id}" ${s.id === activeStrategyId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+  const active = strategies.find(s => s.id === activeStrategyId);
+  const descEl = document.getElementById('strategyDesc');
+  if (active && active.description) {
+    descEl.textContent = active.description;
+    descEl.classList.remove('empty');
+  } else {
+    descEl.textContent = 'No description yet — click Edit to add one.';
+    descEl.classList.add('empty');
+  }
+}
+
+function renderNoStrategyState() {
+  document.getElementById('strategySelect').innerHTML = '';
+  document.getElementById('strategyDesc').textContent = '';
+  document.getElementById('mainContent').innerHTML = `
+    <div class="empty-state">
+      <div>No strategies yet.</div>
+      <button class="btn-add" onclick="openStrategyModal('new')">+ Create Your First Strategy</button>
+    </div>`;
+}
+
+function onStrategyChange() {
+  activeStrategyId = parseInt(document.getElementById('strategySelect').value);
+  activePhaseId = null;
+  renderStrategySelect();
+  loadPhases(activeStrategyId);
+}
+
+function openStrategyModal(mode) {
+  const modal = document.getElementById('strategyModal');
+  const title = document.getElementById('strategyModalTitle');
+  const err = document.getElementById('stratErr');
+  err.style.display = 'none';
+  modal.dataset.mode = mode;
+
+  if (mode === 'edit') {
+    const active = strategies.find(s => s.id === activeStrategyId);
+    if (!active) return;
+    title.textContent = 'Edit Strategy';
+    document.getElementById('stratName').value = active.name;
+    document.getElementById('stratDesc').value = active.description || '';
+  } else {
+    title.textContent = 'New Strategy';
+    document.getElementById('stratName').value = '';
+    document.getElementById('stratDesc').value = '';
+  }
+  modal.style.display = 'flex';
+}
+function closeStrategyModal() { document.getElementById('strategyModal').style.display = 'none'; }
+
+async function saveStrategy() {
+  const name = document.getElementById('stratName').value.trim();
+  const description = document.getElementById('stratDesc').value.trim();
+  const err = document.getElementById('stratErr');
+  const mode = document.getElementById('strategyModal').dataset.mode;
+
+  if (!name) { err.textContent = 'Name is required.'; err.style.display = 'block'; return; }
+
+  try {
+    if (mode === 'edit') {
+      const { error } = await supabaseClient.from('strategies').update({ name, description }).eq('id', activeStrategyId);
+      if (error) throw error;
+    } else {
+      const { data, error } = await supabaseClient.from('strategies').insert([{ name, description }]).select().single();
+      if (error) throw error;
+      activeStrategyId = data.id;
+    }
+    closeStrategyModal();
+    await loadStrategies();
+  } catch(e) {
+    err.textContent = 'Save failed: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+// ── PHASE CRUD ──
+async function loadPhases(strategyId) {
+  try {
+    const { data, error } = await supabaseClient.from('phases').select('*').eq('strategy_id', strategyId).order('sort_order', { ascending: true });
+    if (error) throw error;
+    phases = data;
+
+    if (phases.length === 0) {
+      renderNoPhaseState();
+      return;
+    }
+    if (!activePhaseId || !phases.find(p => p.id === activePhaseId)) {
+      activePhaseId = phases[0].id;
+    }
+    await loadEntries();
+    renderMainContent();
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderNoPhaseState() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="empty-state">
+      <div>No phases yet for this strategy.</div>
+      <button class="btn-add" onclick="openPhaseModal()">+ Add First Phase</button>
+    </div>`;
+}
+
+function openPhaseModal() {
+  renderPhaseList();
+  document.getElementById('npLabel').value = '';
+  document.getElementById('npStart').value = '';
+  document.getElementById('npEnd').value = '';
+  document.getElementById('npDeadline').value = '';
+  document.getElementById('npEffStart').value = new Date().toISOString().slice(0,10);
+  document.getElementById('phaseModal').style.display = 'flex';
+}
+function closePhaseModal() { document.getElementById('phaseModal').style.display = 'none'; }
+
+function renderPhaseList() {
+  const el = document.getElementById('phaseList');
+  if (phases.length === 0) { el.innerHTML = `<div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px">No phases yet.</div>`; return; }
+  el.innerHTML = phases.map(p => `
+    <div class="phase-row">
+      <div class="phase-row-grid">
+        <div class="field"><label>Label</label><input type="text" value="${escapeHtml(p.label)}" id="pl_${p.id}"></div>
+        <div class="field"><label>Backtest Start</label><input type="date" value="${p.backtest_start}" id="ps_${p.id}"></div>
+        <div class="field"><label>Backtest End</label><input type="date" value="${p.backtest_end}" id="pe_${p.id}"></div>
+        <div class="field"><label>Deadline</label><input type="date" value="${p.deadline}" id="pd_${p.id}"></div>
+        <div class="field"><label>Effective Start</label><input type="date" value="${p.effective_start || ''}" id="pef_${p.id}"></div>
+      </div>
+      <div class="phase-row-actions">
+        <button class="btn-small danger" onclick="deletePhase(${p.id})">Delete</button>
+        <button class="btn-small" onclick="savePhase(${p.id})">Save</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addPhase() {
+  const label = document.getElementById('npLabel').value.trim();
+  const backtest_start = document.getElementById('npStart').value;
+  const backtest_end = document.getElementById('npEnd').value;
+  const deadline = document.getElementById('npDeadline').value;
+  const effective_start = document.getElementById('npEffStart').value || null;
+
+  if (!label || !backtest_start || !backtest_end || !deadline) { alert('Label, Backtest Start/End and Deadline are required.'); return; }
+
+  try {
+    const sort_order = phases.length;
+    const { error } = await supabaseClient.from('phases').insert([{
+      strategy_id: activeStrategyId, label, backtest_start, backtest_end, deadline, effective_start, sort_order
+    }]);
+    if (error) throw error;
+    await loadPhases(activeStrategyId);
+    renderPhaseList();
+    document.getElementById('npLabel').value = '';
+    document.getElementById('npStart').value = '';
+    document.getElementById('npEnd').value = '';
+    document.getElementById('npDeadline').value = '';
+    document.getElementById('npEffStart').value = new Date().toISOString().slice(0,10);
+  } catch(e) {
+    alert('Failed to add phase: ' + e.message);
+  }
+}
+
+async function savePhase(id) {
+  const label = document.getElementById(`pl_${id}`).value.trim();
+  const backtest_start = document.getElementById(`ps_${id}`).value;
+  const backtest_end = document.getElementById(`pe_${id}`).value;
+  const deadline = document.getElementById(`pd_${id}`).value;
+  const effective_start = document.getElementById(`pef_${id}`).value || null;
+
+  try {
+    const { error } = await supabaseClient.from('phases').update({ label, backtest_start, backtest_end, deadline, effective_start }).eq('id', id);
+    if (error) throw error;
+    await loadPhases(activeStrategyId);
+  } catch(e) {
+    alert('Failed to save phase: ' + e.message);
+  }
+}
+
+async function deletePhase(id) {
+  if (!confirm('Delete this phase? All its logged entries will also be deleted. This cannot be undone.')) return;
+  try {
+    const { error } = await supabaseClient.from('phases').delete().eq('id', id);
+    if (error) throw error;
+    if (activePhaseId === id) activePhaseId = null;
+    await loadPhases(activeStrategyId);
+    renderPhaseList();
+  } catch(e) {
+    alert('Failed to delete phase: ' + e.message);
+  }
+}
+
+// ── ENTRIES CRUD ──
+async function loadEntries() {
+  if (phases.length === 0) { entries = []; return; }
+  setSyncStatus('syncing', 'loading entries...');
+  try {
+    const ids = phases.map(p => p.id);
+    const { data, error } = await supabaseClient.from('entries').select('*').in('phase_id', ids).order('created_at', { ascending: true });
     if (error) throw error;
     entries = data.map(r => ({
-      id: r.id, date: r.date, week: r.week,
-      r: parseFloat(r.r), trades: r.trades,
-      wins: r.wins || 0, losses: r.losses || 0, phase: r.phase
+      id: r.id, phase_id: r.phase_id, date: r.date, week: r.week,
+      r: parseFloat(r.r), trades: r.trades, wins: r.wins || 0, losses: r.losses || 0
     }));
     setSyncStatus('synced', 'synced · ' + new Date().toLocaleTimeString());
-    render();
   } catch(e) {
     setSyncStatus('error', 'sync error');
     console.error(e);
@@ -451,9 +714,9 @@ async function addEntry() {
   const trades = parseInt(document.getElementById('fTrades').value);
   const wins  = parseInt(document.getElementById('fWins').value) || 0;
   const losses = parseInt(document.getElementById('fLosses').value) || 0;
-  const phase = document.getElementById('fPhase').value;
+  const phase_id = parseInt(document.getElementById('fPhase').value);
 
-  if (!date || !week || isNaN(r) || isNaN(trades)) { alert('Please fill all required fields.'); return; }
+  if (!date || !week || isNaN(r) || isNaN(trades) || !phase_id) { alert('Please fill all required fields.'); return; }
 
   const btn = document.getElementById('addBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
@@ -462,11 +725,11 @@ async function addEntry() {
   try {
     const { data, error } = await supabaseClient
       .from('entries')
-      .insert([{ date, week, r, trades, wins, losses, phase }])
+      .insert([{ date, week, r, trades, wins, losses, phase_id }])
       .select().single();
     if (error) throw error;
 
-    entries.push({ id: data.id, date, week, r, trades, wins, losses, phase });
+    entries.push({ id: data.id, phase_id, date, week, r, trades, wins, losses });
     document.getElementById('fWeek').value = '';
     document.getElementById('fR').value = '';
     document.getElementById('fTrades').value = '';
@@ -492,17 +755,17 @@ async function deleteEntry(id) {
     render();
   } catch(e) {
     setSyncStatus('error', 'delete failed');
-    alert('Delete failed: ' + e.message);
   }
 }
 
 async function clearAll() {
-  if (!confirm('Delete ALL entries from the database? This cannot be undone.')) return;
+  if (!activePhaseId) return;
+  if (!confirm(`Delete ALL entries for "${phases.find(p=>p.id===activePhaseId)?.label}"? This cannot be undone.`)) return;
   setSyncStatus('syncing', 'clearing...');
   try {
-    const { error } = await supabaseClient.from('entries').delete().neq('id', 0);
+    const { error } = await supabaseClient.from('entries').delete().eq('phase_id', activePhaseId);
     if (error) throw error;
-    entries = [];
+    entries = entries.filter(e => e.phase_id !== activePhaseId);
     setSyncStatus('synced', 'cleared');
     render();
   } catch(e) {
@@ -511,18 +774,102 @@ async function clearAll() {
 }
 
 // ── PHASE TOGGLE ──
-function setPhase(p) {
-  activePhase = p;
-  document.querySelectorAll('.phase-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.phase-btn.${p.toLowerCase()}`).classList.add('active');
-  document.getElementById('fPhase').value = p;
+function setPhase(id) {
+  activePhaseId = id;
   render();
+}
+
+// ── MAIN CONTENT SHELL (rendered once phases exist) ──
+function renderMainContent() {
+  document.getElementById('mainContent').innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px;flex-wrap:wrap">
+      <div class="phase-toggle" id="phaseToggle"></div>
+      <button class="btn-ghost accent" onclick="openPhaseModal()">⚙ Manage Phases</button>
+    </div>
+
+    <div class="stats-grid" id="statsGrid"></div>
+    <div id="velocityBanner"></div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Weekly R · Performance Curve</div>
+        <div class="chart-wrap"><canvas id="rChart" role="img" aria-label="Line chart of weekly R over time"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Coverage · Weeks Logged Per Calendar Week</div>
+        <div class="chart-wrap"><canvas id="coverageChart" role="img" aria-label="Bar chart of weeks logged per calendar week"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Win % · Per Historical Week</div>
+        <div class="chart-wrap"><canvas id="winChart" role="img" aria-label="Bar chart of win percentage per historical week"></canvas></div>
+      </div>
+    </div>
+
+    <div class="form-card">
+      <div class="section-header" style="margin-bottom:14px">
+        <div class="section-title">Log New Entry</div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Date Attempted</label><input type="date" id="fDate"></div>
+        <div class="field"><label>Historical Week</label><input type="text" id="fWeek" placeholder="e.g. Week 3, Jan 2024"></div>
+        <div class="field"><label>Weekly R</label><input type="number" id="fR" step="0.01" placeholder="e.g. 2.4"></div>
+        <div class="field"><label>No. of Trades</label><input type="number" id="fTrades" min="0" placeholder="e.g. 5"></div>
+        <div class="field"><label>Winning Trades</label><input type="number" id="fWins" min="0" placeholder="e.g. 3"></div>
+        <div class="field"><label>Losing Trades</label><input type="number" id="fLosses" min="0" placeholder="e.g. 2"></div>
+        <div class="field"><label>Phase</label><select id="fPhase"></select></div>
+        <button class="btn-add" id="addBtn" onclick="addEntry()">+ Add Entry</button>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">Entry Log</div>
+      <span class="entry-count" id="entryCount">0 entries</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date Attempted</th>
+            <th>Historical Week</th>
+            <th>Weekly R</th>
+            <th>Trades</th>
+            <th>W / L</th>
+            <th>Win %</th>
+            <th>Phase</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
+  renderPhaseFieldOptions();
+  render();
+}
+
+function renderPhaseFieldOptions() {
+  const sel = document.getElementById('fPhase');
+  if (!sel) return;
+  sel.innerHTML = phases.map(p => `<option value="${p.id}" ${p.id === activePhaseId ? 'selected' : ''}>${escapeHtml(p.label)}</option>`).join('');
+}
+
+function renderPhaseToggle() {
+  const el = document.getElementById('phaseToggle');
+  if (!el) return;
+  el.innerHTML = phases.map((p, i) => `
+    <button class="phase-btn ${p.id === activePhaseId ? 'active' : ''}"
+      style="${p.id === activePhaseId ? `background:${colorFor(i)}` : ''}"
+      onclick="setPhase(${p.id})">${escapeHtml(p.label)}</button>
+  `).join('');
 }
 
 // ── STATS ──
 function computeStats(phase) {
-  const ph = entries.filter(e => e.phase === phase);
-  const totalWeeks = PHASES[phase].weeks;
+  const ph = entries.filter(e => e.phase_id === phase.id);
+  const start = new Date(phase.backtest_start);
+  const end = new Date(phase.backtest_end);
+  const totalWeeks = Math.round((end - start) / (7 * 24 * 3600 * 1000));
   const logged = ph.length;
   const pct = totalWeeks > 0 ? ((logged / totalWeeks) * 100).toFixed(1) : '0.0';
   const uniqueDays = new Set(ph.map(e => e.date)).size;
@@ -535,8 +882,8 @@ function computeStats(phase) {
   const winPct = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(1) : '0.0';
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const deadline = PHASES[phase].deadline;
-  const phaseStart = PHASES[phase].startDate;
+  const deadline = new Date(phase.deadline);
+  const phaseStart = phase.effective_start ? new Date(phase.effective_start) : start;
   const effectiveStart = today >= phaseStart ? today : phaseStart;
   const daysLeft = Math.max(0, Math.ceil((deadline - effectiveStart) / (24 * 3600 * 1000)));
   const weeksLeft = Math.max(0, totalWeeks - logged);
@@ -547,28 +894,29 @@ function computeStats(phase) {
   return { logged, totalWeeks, pct, avgDaily, avgR, totalR: totalR.toFixed(2), totalTrades, uniqueDays, totalWins, totalLosses, winPct, daysLeft, weeksLeft, requiredRate: requiredRate.toFixed(2), onTrack, deadlineStr };
 }
 
-// ── RENDER STATS ──
 function renderStats() {
-  const s = computeStats(activePhase);
-  const col = activePhase === 'P1' ? 'p1' : 'p2';
-  const accentColor = PHASES[activePhase].color;
+  const phase = phases.find(p => p.id === activePhaseId);
+  if (!phase) return;
+  const idx = phases.findIndex(p => p.id === activePhaseId);
+  const accentColor = colorFor(idx);
+  const s = computeStats(phase);
   const fillPct = Math.min(parseFloat(s.pct), 100);
 
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card ${col}" style="animation-delay:0s">
+    <div class="stat-card" style="--phase-color:${accentColor};animation-delay:0s">
       <div class="stat-label">Progress</div>
-      <div class="stat-value ${col}">${s.pct}%</div>
+      <div class="stat-value" style="color:${accentColor}">${s.pct}%</div>
       <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${fillPct}%;background:${accentColor}"></div></div></div>
       <div class="stat-sub">${s.logged} / ${s.totalWeeks} weeks</div>
     </div>
-    <div class="stat-card amber" style="animation-delay:0.05s">
+    <div class="stat-card" style="--phase-color:var(--amber);animation-delay:0.05s">
       <div class="stat-label">Avg Daily Coverage</div>
-      <div class="stat-value amber">${s.avgDaily}</div>
+      <div class="stat-value" style="color:var(--amber)">${s.avgDaily}</div>
       <div class="stat-sub">weeks / day · ${s.uniqueDays} days logged</div>
     </div>
-    <div class="stat-card teal" style="animation-delay:0.1s">
+    <div class="stat-card" style="--phase-color:var(--teal);animation-delay:0.1s">
       <div class="stat-label">Avg Weekly R</div>
-      <div class="stat-value ${parseFloat(s.avgR) >= 0 ? 'teal' : ''}" style="${parseFloat(s.avgR) < 0 ? 'color:var(--red)' : ''}">${s.avgR}R</div>
+      <div class="stat-value" style="color:${parseFloat(s.avgR) >= 0 ? 'var(--teal)' : 'var(--red)'}">${s.avgR}R</div>
       <div class="stat-sub">cumulative ${s.totalR}R</div>
     </div>
     <div class="stat-card" style="animation-delay:0.15s">
@@ -585,10 +933,12 @@ function renderStats() {
   `;
 }
 
-// ── RENDER VELOCITY ──
 function renderVelocity() {
-  const s = computeStats(activePhase);
-  const phaseColor = activePhase === 'P1' ? 'var(--p1)' : 'var(--p2)';
+  const phase = phases.find(p => p.id === activePhaseId);
+  if (!phase) return;
+  const idx = phases.findIndex(p => p.id === activePhaseId);
+  const phaseColor = colorFor(idx);
+  const s = computeStats(phase);
   const trackClass = s.onTrack ? 'on-track' : 'off-track';
   const statusClass = s.onTrack ? 'ok' : 'warn';
   const statusText = s.onTrack ? '▲ ON TRACK' : '▼ BEHIND PACE';
@@ -619,12 +969,13 @@ function renderVelocity() {
 
 // ── RENDER TABLE ──
 function renderTable() {
-  const filtered = [...entries].filter(e => e.phase === activePhase).reverse();
+  const filtered = [...entries].filter(e => e.phase_id === activePhaseId).reverse();
   const tbody = document.getElementById('tableBody');
+  const phaseLabel = phases.find(p => p.id === activePhaseId)?.label || '';
   document.getElementById('entryCount').textContent = `${filtered.length} entries`;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No entries yet for ${PHASES[activePhase].label}.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No entries yet for ${escapeHtml(phaseLabel)}.</td></tr>`;
     return;
   }
   tbody.innerHTML = filtered.map(e => {
@@ -634,12 +985,12 @@ function renderTable() {
     const wpColor = e.trades > 0 ? (wins / e.trades >= 0.5 ? 'color:var(--teal)' : 'color:var(--red)') : '';
     return `<tr>
       <td>${e.date}</td>
-      <td>${e.week}</td>
+      <td>${escapeHtml(e.week)}</td>
       <td class="${e.r >= 0 ? 'r-pos' : 'r-neg'}">${e.r >= 0 ? '+' : ''}${e.r}R</td>
       <td>${e.trades}</td>
       <td><span style="color:var(--teal)">${wins}</span> / <span style="color:var(--red)">${losses}</span></td>
       <td style="${wpColor}">${wp}${e.trades > 0 ? '%' : ''}</td>
-      <td><span class="phase-badge ${e.phase.toLowerCase()}">${e.phase}</span></td>
+      <td><span class="phase-badge">${escapeHtml(phaseLabel)}</span></td>
       <td><button class="btn-del" onclick="deleteEntry(${e.id})" title="Delete">✕</button></td>
     </tr>`;
   }).join('');
@@ -647,12 +998,12 @@ function renderTable() {
 
 // ── RENDER CHARTS ──
 function renderCharts() {
-  const ph = entries.filter(e => e.phase === activePhase);
+  const idx = phases.findIndex(p => p.id === activePhaseId);
+  const accentColor = colorFor(idx);
+  const dimColor = accentColor + '20';
+  const ph = entries.filter(e => e.phase_id === activePhaseId);
   const sorted = [...ph].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const accentColor = PHASES[activePhase].color;
-  const dimColor = activePhase === 'P1' ? 'rgba(129,140,248,0.12)' : 'rgba(52,211,153,0.12)';
 
-  // R curve
   const rCtx = document.getElementById('rChart').getContext('2d');
   if (rChart) rChart.destroy();
   rChart = new Chart(rCtx, {
@@ -668,7 +1019,6 @@ function renderCharts() {
     }
   });
 
-  // Coverage chart
   const coverageMap = {};
   ph.forEach(e => {
     const d = new Date(e.date);
@@ -690,7 +1040,6 @@ function renderCharts() {
     }
   });
 
-  // Win% chart
   const winData = sorted.map(e => (!e.trades || e.trades === 0) ? null : parseFloat(((e.wins || 0) / e.trades * 100).toFixed(1)));
   const winCtx = document.getElementById('winChart').getContext('2d');
   if (winChart) winChart.destroy();
@@ -714,19 +1063,28 @@ function getISOWeek(date) {
 
 // ── EXPORT ──
 function exportCSV() {
-  const ph = entries.filter(e => e.phase === activePhase);
+  const phaseLabel = phases.find(p => p.id === activePhaseId)?.label || 'phase';
+  const ph = entries.filter(e => e.phase_id === activePhaseId);
   if (ph.length === 0) { alert('No entries to export.'); return; }
   const header = 'Date Attempted,Historical Week,Weekly R,Trades,Wins,Losses,Win%,Phase\n';
-  const rows = ph.map(e => { const wp = e.trades > 0 ? ((e.wins||0)/e.trades*100).toFixed(1)+'%' : ''; return `${e.date},"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},${e.phase}`; }).join('\n');
+  const rows = ph.map(e => { const wp = e.trades > 0 ? ((e.wins||0)/e.trades*100).toFixed(1)+'%' : ''; return `${e.date},"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},"${phaseLabel}"`; }).join('\n');
   const blob = new Blob([header + rows], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `backtest_${activePhase}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `backtest_${phaseLabel.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 // ── MAIN RENDER ──
 function render() {
+  if (!activePhaseId) return;
+  renderPhaseToggle();
+  renderPhaseFieldOptions();
   renderStats();
   renderVelocity();
   renderTable();
@@ -734,11 +1092,20 @@ function render() {
 }
 
 // ── INIT ──
-(function init() {
-  const SUPABASE_URL = 'https://tgnscgitbjvxugolwinx.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbnNjZ2l0Ymp2eHVnb2x3aW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNDM2NTEsImV4cCI6MjA5NTgxOTY1MX0.WZssvCxF6F_v2z-ncJ5pSnaOTW297py0cPyfc6FIj1Y';
-  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  launchApp();
+(async function init() {
+  const saved = getSavedConfig();
+  if (saved && saved.url && saved.key) {
+    try {
+      supabaseClient = supabase.createClient(saved.url, saved.key);
+      const { error } = await supabaseClient.from('strategies').select('id').limit(1);
+      if (error) throw error;
+      launchApp();
+      return;
+    } catch(e) {
+      console.warn('Saved config failed, showing setup screen.', e);
+    }
+  }
+  document.getElementById('setupScreen').style.display = 'flex';
 })();
 </script>
 </body>
