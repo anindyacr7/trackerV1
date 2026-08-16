@@ -359,8 +359,6 @@ create policy "allow all" on entries for all using (true) with check (true);</co
       <div class="field"><label>Label</label><input type="text" id="npLabel" placeholder="e.g. Phase 3"></div>
       <div class="field"><label>Backtest Start</label><input type="date" id="npStart"></div>
       <div class="field"><label>Backtest End</label><input type="date" id="npEnd"></div>
-      <div class="field"><label>Deadline</label><input type="date" id="npDeadline"></div>
-      <div class="field"><label>Effective Start</label><input type="date" id="npEffStart"></div>
     </div>
     <button class="setup-btn" onclick="addPhase()">+ Add Phase</button>
   </div>
@@ -457,7 +455,7 @@ let phases = [];
 let entries = [];
 let activeStrategyId = null;
 let activePhaseId = null;
-let rChart, coverageChart, winChart;
+let rChart, winChart;
 
 const PALETTE = ['#818cf8', '#34d399', '#f0a500', '#f472b6', '#60a5fa', '#fb923c', '#a78bfa', '#4ade80'];
 function colorFor(index) { return PALETTE[index % PALETTE.length]; }
@@ -606,8 +604,6 @@ function openPhaseModal() {
   document.getElementById('npLabel').value = '';
   document.getElementById('npStart').value = '';
   document.getElementById('npEnd').value = '';
-  document.getElementById('npDeadline').value = '';
-  document.getElementById('npEffStart').value = new Date().toISOString().slice(0,10);
   document.getElementById('phaseModal').style.display = 'flex';
 }
 function closePhaseModal() { document.getElementById('phaseModal').style.display = 'none'; }
@@ -621,8 +617,6 @@ function renderPhaseList() {
         <div class="field"><label>Label</label><input type="text" value="${escapeHtml(p.label)}" id="pl_${p.id}"></div>
         <div class="field"><label>Backtest Start</label><input type="date" value="${p.backtest_start}" id="ps_${p.id}"></div>
         <div class="field"><label>Backtest End</label><input type="date" value="${p.backtest_end}" id="pe_${p.id}"></div>
-        <div class="field"><label>Deadline</label><input type="date" value="${p.deadline}" id="pd_${p.id}"></div>
-        <div class="field"><label>Effective Start</label><input type="date" value="${p.effective_start || ''}" id="pef_${p.id}"></div>
       </div>
       <div class="phase-row-actions">
         <button class="btn-small danger" onclick="deletePhase(${p.id})">Delete</button>
@@ -636,15 +630,14 @@ async function addPhase() {
   const label = document.getElementById('npLabel').value.trim();
   const backtest_start = document.getElementById('npStart').value;
   const backtest_end = document.getElementById('npEnd').value;
-  const deadline = document.getElementById('npDeadline').value;
-  const effective_start = document.getElementById('npEffStart').value || null;
 
-  if (!label || !backtest_start || !backtest_end || !deadline) { alert('Label, Backtest Start/End and Deadline are required.'); return; }
+  if (!label || !backtest_start || !backtest_end) { alert('Label, Backtest Start and Backtest End are required.'); return; }
 
   try {
     const sort_order = phases.length;
+    // deadline/effective_start no longer collected in UI; deadline kept non-null via backtest_end fallback
     const { error } = await supabaseClient.from('phases').insert([{
-      strategy_id: activeStrategyId, label, backtest_start, backtest_end, deadline, effective_start, sort_order
+      strategy_id: activeStrategyId, label, backtest_start, backtest_end, deadline: backtest_end, effective_start: null, sort_order
     }]);
     if (error) throw error;
     await loadPhases(activeStrategyId);
@@ -652,8 +645,6 @@ async function addPhase() {
     document.getElementById('npLabel').value = '';
     document.getElementById('npStart').value = '';
     document.getElementById('npEnd').value = '';
-    document.getElementById('npDeadline').value = '';
-    document.getElementById('npEffStart').value = new Date().toISOString().slice(0,10);
   } catch(e) {
     alert('Failed to add phase: ' + e.message);
   }
@@ -663,11 +654,10 @@ async function savePhase(id) {
   const label = document.getElementById(`pl_${id}`).value.trim();
   const backtest_start = document.getElementById(`ps_${id}`).value;
   const backtest_end = document.getElementById(`pe_${id}`).value;
-  const deadline = document.getElementById(`pd_${id}`).value;
-  const effective_start = document.getElementById(`pef_${id}`).value || null;
 
   try {
-    const { error } = await supabaseClient.from('phases').update({ label, backtest_start, backtest_end, deadline, effective_start }).eq('id', id);
+    // deadline/effective_start not shown in UI anymore — left untouched in DB
+    const { error } = await supabaseClient.from('phases').update({ label, backtest_start, backtest_end }).eq('id', id);
     if (error) throw error;
     await loadPhases(activeStrategyId);
   } catch(e) {
@@ -708,7 +698,6 @@ async function loadEntries() {
 }
 
 async function addEntry() {
-  const date  = document.getElementById('fDate').value;
   const week  = document.getElementById('fWeek').value.trim();
   const r     = parseFloat(document.getElementById('fR').value);
   const trades = parseInt(document.getElementById('fTrades').value);
@@ -716,7 +705,7 @@ async function addEntry() {
   const losses = parseInt(document.getElementById('fLosses').value) || 0;
   const phase_id = parseInt(document.getElementById('fPhase').value);
 
-  if (!date || !week || isNaN(r) || isNaN(trades) || !phase_id) { alert('Please fill all required fields.'); return; }
+  if (!week || isNaN(r) || isNaN(trades) || !phase_id) { alert('Please fill all required fields.'); return; }
 
   const btn = document.getElementById('addBtn');
   btn.disabled = true; btn.textContent = 'Saving...';
@@ -725,11 +714,11 @@ async function addEntry() {
   try {
     const { data, error } = await supabaseClient
       .from('entries')
-      .insert([{ date, week, r, trades, wins, losses, phase_id }])
+      .insert([{ week, r, trades, wins, losses, phase_id }])
       .select().single();
     if (error) throw error;
 
-    entries.push({ id: data.id, phase_id, date, week, r, trades, wins, losses });
+    entries.push({ id: data.id, phase_id, week, r, trades, wins, losses });
     document.getElementById('fWeek').value = '';
     document.getElementById('fR').value = '';
     document.getElementById('fTrades').value = '';
@@ -788,16 +777,11 @@ function renderMainContent() {
     </div>
 
     <div class="stats-grid" id="statsGrid"></div>
-    <div id="velocityBanner"></div>
 
     <div class="charts-row">
       <div class="chart-card">
         <div class="chart-title">Weekly R · Performance Curve</div>
         <div class="chart-wrap"><canvas id="rChart" role="img" aria-label="Line chart of weekly R over time"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Coverage · Weeks Logged Per Calendar Week</div>
-        <div class="chart-wrap"><canvas id="coverageChart" role="img" aria-label="Bar chart of weeks logged per calendar week"></canvas></div>
       </div>
       <div class="chart-card">
         <div class="chart-title">Win % · Per Historical Week</div>
@@ -810,7 +794,6 @@ function renderMainContent() {
         <div class="section-title">Log New Entry</div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>Date Attempted</label><input type="date" id="fDate"></div>
         <div class="field"><label>Historical Week</label><input type="text" id="fWeek" placeholder="e.g. Week 3, Jan 2024"></div>
         <div class="field"><label>Weekly R</label><input type="number" id="fR" step="0.01" placeholder="e.g. 2.4"></div>
         <div class="field"><label>No. of Trades</label><input type="number" id="fTrades" min="0" placeholder="e.g. 5"></div>
@@ -829,7 +812,6 @@ function renderMainContent() {
       <table>
         <thead>
           <tr>
-            <th>Date Attempted</th>
             <th>Historical Week</th>
             <th>Weekly R</th>
             <th>Trades</th>
@@ -843,7 +825,6 @@ function renderMainContent() {
       </table>
     </div>
   `;
-  document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
   renderPhaseFieldOptions();
   render();
 }
@@ -872,8 +853,6 @@ function computeStats(phase) {
   const totalWeeks = Math.round((end - start) / (7 * 24 * 3600 * 1000));
   const logged = ph.length;
   const pct = totalWeeks > 0 ? ((logged / totalWeeks) * 100).toFixed(1) : '0.0';
-  const uniqueDays = new Set(ph.map(e => e.date)).size;
-  const avgDaily = uniqueDays > 0 ? (logged / uniqueDays).toFixed(2) : '0.00';
   const totalR = ph.reduce((s, e) => s + e.r, 0);
   const avgR = logged > 0 ? (totalR / logged).toFixed(2) : '0.00';
   const totalTrades = ph.reduce((s, e) => s + e.trades, 0);
@@ -881,17 +860,7 @@ function computeStats(phase) {
   const totalLosses = ph.reduce((s, e) => s + (e.losses || 0), 0);
   const winPct = totalTrades > 0 ? ((totalWins / totalTrades) * 100).toFixed(1) : '0.0';
 
-  const today = new Date(); today.setHours(0,0,0,0);
-  const deadline = new Date(phase.deadline);
-  const phaseStart = phase.effective_start ? new Date(phase.effective_start) : start;
-  const effectiveStart = today >= phaseStart ? today : phaseStart;
-  const daysLeft = Math.max(0, Math.ceil((deadline - effectiveStart) / (24 * 3600 * 1000)));
-  const weeksLeft = Math.max(0, totalWeeks - logged);
-  const requiredRate = daysLeft > 0 ? (weeksLeft / daysLeft) : weeksLeft;
-  const onTrack = parseFloat(avgDaily) >= requiredRate;
-  const deadlineStr = deadline.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  return { logged, totalWeeks, pct, avgDaily, avgR, totalR: totalR.toFixed(2), totalTrades, uniqueDays, totalWins, totalLosses, winPct, daysLeft, weeksLeft, requiredRate: requiredRate.toFixed(2), onTrack, deadlineStr };
+  return { logged, totalWeeks, pct, avgR, totalR: totalR.toFixed(2), totalTrades, totalWins, totalLosses, winPct };
 }
 
 function renderStats() {
@@ -908,11 +877,6 @@ function renderStats() {
       <div class="stat-value" style="color:${accentColor}">${s.pct}%</div>
       <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${fillPct}%;background:${accentColor}"></div></div></div>
       <div class="stat-sub">${s.logged} / ${s.totalWeeks} weeks</div>
-    </div>
-    <div class="stat-card" style="--phase-color:var(--amber);animation-delay:0.05s">
-      <div class="stat-label">Avg Daily Coverage</div>
-      <div class="stat-value" style="color:var(--amber)">${s.avgDaily}</div>
-      <div class="stat-sub">weeks / day · ${s.uniqueDays} days logged</div>
     </div>
     <div class="stat-card" style="--phase-color:var(--teal);animation-delay:0.1s">
       <div class="stat-label">Avg Weekly R</div>
@@ -933,40 +897,6 @@ function renderStats() {
   `;
 }
 
-function renderVelocity() {
-  const phase = phases.find(p => p.id === activePhaseId);
-  if (!phase) return;
-  const idx = phases.findIndex(p => p.id === activePhaseId);
-  const phaseColor = colorFor(idx);
-  const s = computeStats(phase);
-  const trackClass = s.onTrack ? 'on-track' : 'off-track';
-  const statusClass = s.onTrack ? 'ok' : 'warn';
-  const statusText = s.onTrack ? '▲ ON TRACK' : '▼ BEHIND PACE';
-  const rateColor = s.onTrack ? 'var(--teal)' : 'var(--red)';
-  const delta = (parseFloat(s.avgDaily) - parseFloat(s.requiredRate)).toFixed(2);
-  const deltaSign = delta >= 0 ? '+' : '';
-  const deltaColor = delta >= 0 ? 'var(--teal)' : 'var(--red)';
-
-  document.getElementById('velocityBanner').innerHTML = `
-    <div class="velocity-banner ${trackClass}">
-      <div>
-        <div class="vel-label">Required Pace to hit deadline · ${s.deadlineStr}</div>
-        <div class="vel-main">
-          <div class="vel-rate" style="color:${rateColor}">${s.requiredRate}</div>
-          <div class="vel-unit">weeks / day needed</div>
-        </div>
-      </div>
-      <div class="vel-meta">
-        <div class="vel-pill"><div class="vel-pill-val" style="color:var(--amber)">${s.weeksLeft}</div><div class="vel-pill-sub">weeks remaining</div></div>
-        <div class="vel-pill"><div class="vel-pill-val" style="color:${phaseColor}">${s.daysLeft}</div><div class="vel-pill-sub">days to deadline</div></div>
-        <div class="vel-pill"><div class="vel-pill-val" style="color:var(--muted)">${s.avgDaily}</div><div class="vel-pill-sub">your avg pace</div></div>
-        <div class="vel-pill"><div class="vel-pill-val" style="color:${deltaColor}">${deltaSign}${delta}</div><div class="vel-pill-sub">pace delta</div></div>
-      </div>
-      <div class="vel-status ${statusClass}">${statusText}</div>
-    </div>
-  `;
-}
-
 // ── RENDER TABLE ──
 function renderTable() {
   const filtered = [...entries].filter(e => e.phase_id === activePhaseId).reverse();
@@ -975,7 +905,7 @@ function renderTable() {
   document.getElementById('entryCount').textContent = `${filtered.length} entries`;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No entries yet for ${escapeHtml(phaseLabel)}.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No entries yet for ${escapeHtml(phaseLabel)}.</td></tr>`;
     return;
   }
   tbody.innerHTML = filtered.map(e => {
@@ -984,7 +914,6 @@ function renderTable() {
     const wp = e.trades > 0 ? ((wins / e.trades) * 100).toFixed(0) : '—';
     const wpColor = e.trades > 0 ? (wins / e.trades >= 0.5 ? 'color:var(--teal)' : 'color:var(--red)') : '';
     return `<tr>
-      <td>${e.date}</td>
       <td>${escapeHtml(e.week)}</td>
       <td class="${e.r >= 0 ? 'r-pos' : 'r-neg'}">${e.r >= 0 ? '+' : ''}${e.r}R</td>
       <td>${e.trades}</td>
@@ -1002,7 +931,7 @@ function renderCharts() {
   const accentColor = colorFor(idx);
   const dimColor = accentColor + '20';
   const ph = entries.filter(e => e.phase_id === activePhaseId);
-  const sorted = [...ph].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const sorted = [...ph].sort((a, b) => a.id - b.id);
 
   const rCtx = document.getElementById('rChart').getContext('2d');
   if (rChart) rChart.destroy();
@@ -1016,27 +945,6 @@ function renderCharts() {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#6b7280', bodyColor: '#e8eaf0', titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 }, callbacks: { label: ctx => ` ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y}R` } } },
       scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, callback: v => v + 'R' }, border: { color: 'transparent' } } }
-    }
-  });
-
-  const coverageMap = {};
-  ph.forEach(e => {
-    const d = new Date(e.date);
-    const wk = getISOWeek(d);
-    const key = `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
-    coverageMap[key] = (coverageMap[key] || 0) + 1;
-  });
-  const covKeys = Object.keys(coverageMap).sort();
-
-  const covCtx = document.getElementById('coverageChart').getContext('2d');
-  if (coverageChart) coverageChart.destroy();
-  coverageChart = new Chart(covCtx, {
-    type: 'bar',
-    data: { labels: covKeys, datasets: [{ label: 'Weeks logged', data: covKeys.map(k => coverageMap[k]), backgroundColor: dimColor, borderColor: accentColor, borderWidth: 1, borderRadius: 3 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e28', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#6b7280', bodyColor: '#e8eaf0', titleFont: { family: 'DM Mono', size: 10 }, bodyFont: { family: 'DM Mono', size: 11 }, callbacks: { label: ctx => ` ${ctx.parsed.y} hist. weeks` } } },
-      scales: { x: { ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 }, grid: { display: false }, border: { color: 'transparent' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, stepSize: 1 }, border: { color: 'transparent' } } }
     }
   });
 
@@ -1054,20 +962,13 @@ function renderCharts() {
   });
 }
 
-function getISOWeek(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-}
-
 // ── EXPORT ──
 function exportCSV() {
   const phaseLabel = phases.find(p => p.id === activePhaseId)?.label || 'phase';
   const ph = entries.filter(e => e.phase_id === activePhaseId);
   if (ph.length === 0) { alert('No entries to export.'); return; }
-  const header = 'Date Attempted,Historical Week,Weekly R,Trades,Wins,Losses,Win%,Phase\n';
-  const rows = ph.map(e => { const wp = e.trades > 0 ? ((e.wins||0)/e.trades*100).toFixed(1)+'%' : ''; return `${e.date},"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},"${phaseLabel}"`; }).join('\n');
+  const header = 'Historical Week,Weekly R,Trades,Wins,Losses,Win%,Phase\n';
+  const rows = ph.map(e => { const wp = e.trades > 0 ? ((e.wins||0)/e.trades*100).toFixed(1)+'%' : ''; return `"${e.week}",${e.r},${e.trades},${e.wins||0},${e.losses||0},${wp},"${phaseLabel}"`; }).join('\n');
   const blob = new Blob([header + rows], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1086,7 +987,6 @@ function render() {
   renderPhaseToggle();
   renderPhaseFieldOptions();
   renderStats();
-  renderVelocity();
   renderTable();
   renderCharts();
 }
