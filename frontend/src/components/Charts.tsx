@@ -1,4 +1,4 @@
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import type { Phase, Entry } from '../types';
 import { colorFor } from '../App';
 
@@ -66,13 +66,16 @@ export default function Charts({ phase, entries, phaseIndex }: Props) {
                 tick={{fill: '#6b7280', fontSize: 10, fontFamily: '"DM Mono", monospace'}} 
               />
               <Tooltip content={<CustomTooltip />} />
-              <Bar 
-                dataKey="winPct" 
-                radius={[3,3,3,3]}
-                fill={(entry: any) => (entry.winPct !== null && entry.winPct >= 50) ? 'rgba(45,212,191,0.25)' : 'rgba(248,113,113,0.25)'}
-                stroke={(entry: any) => (entry.winPct !== null && entry.winPct >= 50) ? '#2dd4bf' : '#f87171'}
-                strokeWidth={1}
-              />
+              <Bar dataKey="winPct" radius={[3,3,3,3]}>
+                {sorted.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`}
+                    fill={(entry.winPct !== null && entry.winPct >= 50) ? 'rgba(45,212,191,0.25)' : 'rgba(248,113,113,0.25)'}
+                    stroke={(entry.winPct !== null && entry.winPct >= 50) ? '#2dd4bf' : '#f87171'}
+                    strokeWidth={1}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
