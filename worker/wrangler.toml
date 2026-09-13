@@ -1,0 +1,8 @@
+name = "tracker-worker"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tracker-db"
+database_id = "tracker-db-id"
