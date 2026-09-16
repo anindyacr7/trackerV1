@@ -1,31 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { api } from '../api';
 import type { Phase, Entry } from '../types';
 
 interface Props {
   phase: Phase;
-  phases: Phase[];
   entries: Entry[];
   onRefresh: () => void;
 }
 
-export default function EntryTable({ phase, phases, entries, onRefresh }: Props) {
+export default function EntryTable({ phase, entries, onRefresh }: Props) {
   const [fWeek, setFWeek] = useState('');
   const [fR, setFR] = useState('');
   const [fTrades, setFTrades] = useState('');
   const [fWins, setFWins] = useState('');
   const [fLosses, setFLosses] = useState('');
-  const [fPhase, setFPhase] = useState<number>(phase.id);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setFPhase(phase.id);
-  }, [phase.id]);
 
   const filtered = [...entries].filter(e => e.phase_id === phase.id).reverse();
 
   const handleAdd = async () => {
-    if (!fWeek || !fR || !fTrades || !fPhase) { alert('Please fill all required fields.'); return; }
+    if (!fWeek || !fR || !fTrades) { alert('Please fill all required fields.'); return; }
     setSaving(true);
     try {
       await api.createEntry({
@@ -34,7 +28,7 @@ export default function EntryTable({ phase, phases, entries, onRefresh }: Props)
         trades: parseInt(fTrades),
         wins: parseInt(fWins) || 0,
         losses: parseInt(fLosses) || 0,
-        phase_id: fPhase
+        phase_id: phase.id
       });
       setFWeek(''); setFR(''); setFTrades(''); setFWins(''); setFLosses('');
       onRefresh();
@@ -81,12 +75,7 @@ export default function EntryTable({ phase, phases, entries, onRefresh }: Props)
             <label>Losing Trades</label>
             <input type="number" min="0" value={fLosses} onChange={e=>setFLosses(e.target.value)} placeholder="e.g. 2" />
           </div>
-          <div className="field">
-            <label>Phase</label>
-            <select value={fPhase} onChange={e=>setFPhase(Number(e.target.value))}>
-              {phases.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-            </select>
-          </div>
+
           <button className="btn-add" onClick={handleAdd} disabled={saving}>
             {saving ? 'Saving...' : '+ Add Entry'}
           </button>

@@ -197,7 +197,6 @@ function App() {
                   <Charts phase={phases.find(p => p.id === activePhaseId)!} entries={entries} phaseIndex={phases.findIndex(p => p.id === activePhaseId)} />
                   <EntryTable 
                     phase={phases.find(p => p.id === activePhaseId)!} 
-                    phases={phases}
                     entries={entries} 
                     onRefresh={loadEntries} 
                   />
