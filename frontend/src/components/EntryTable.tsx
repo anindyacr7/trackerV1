@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { Phase, Entry } from '../types';
 
@@ -17,6 +17,10 @@ export default function EntryTable({ phase, phases, entries, onRefresh }: Props)
   const [fLosses, setFLosses] = useState('');
   const [fPhase, setFPhase] = useState<number>(phase.id);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setFPhase(phase.id);
+  }, [phase.id]);
 
   const filtered = [...entries].filter(e => e.phase_id === phase.id).reverse();
 
