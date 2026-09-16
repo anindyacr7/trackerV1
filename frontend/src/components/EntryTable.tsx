@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { Phase, Entry } from '../types';
 
@@ -18,6 +18,10 @@ export default function EntryTable({ phase, entries, onRefresh }: Props) {
 
   const filtered = [...entries].filter(e => e.phase_id === phase.id).reverse();
 
+  useEffect(() => {
+    setFWeek(`Week ${filtered.length + 1}`);
+  }, [phase.id, filtered.length]);
+
   const handleAdd = async () => {
     if (!fWeek || !fR || !fTrades) { alert('Please fill all required fields.'); return; }
     setSaving(true);
@@ -30,7 +34,8 @@ export default function EntryTable({ phase, entries, onRefresh }: Props) {
         losses: parseInt(fLosses) || 0,
         phase_id: phase.id
       });
-      setFWeek(''); setFR(''); setFTrades(''); setFWins(''); setFLosses('');
+      setFR(''); setFTrades(''); setFWins(''); setFLosses('');
+      // Note: fWeek is automatically updated by the useEffect above
       onRefresh();
     } catch(e: any) {
       alert('Save failed: ' + e.message);
