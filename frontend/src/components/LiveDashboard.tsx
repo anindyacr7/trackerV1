@@ -147,62 +147,15 @@ export default function LiveDashboard({ token }: { token: TokenSymbol }) {
     return token === 'BTC' ? price.toFixed(1) : price.toFixed(2)
   }
 
-  // Token-level metrics
-  const tokenTrades = trades.filter(t => normalizeSymbol(t) === token)
-  const tokenActiveCount = tokenTrades.filter(t => t.status === 'OPEN').length
-  const tokenTotalNetR = tokenTrades
-    .filter(t => t.pnl !== null)
-    .reduce((sum, t) => sum + (t.pnl || 0), 0)
-
   return (
     <div style={{ paddingBottom: '2rem' }}>
-      {/* ── TOP TOKEN SUMMARY BAR ── */}
-      <div className="token-summary-bar">
-        <div className="token-title-group">
-          <div className="token-badge-large">{currentTokenConfig.icon}</div>
-          <div>
-            <div className="token-title">{currentTokenConfig.title} ({token})</div>
-            <div className="token-subtitle">{currentTokenConfig.bufferInfo}</div>
-          </div>
-        </div>
-
-        <div className="token-metrics-group">
-          <div className="metric-item">
-            <span className="metric-label">Today's Net R</span>
-            <span className="metric-value" style={{ 
-              color: tokenTotalNetR > 0 ? 'var(--teal)' : (tokenTotalNetR < 0 ? 'var(--red)' : 'var(--text)') 
-            }}>
-              {tokenTotalNetR > 0 ? '+' : ''}{tokenTotalNetR.toFixed(2)}R
-            </span>
-          </div>
-
-          <div className="metric-item">
-            <span className="metric-label">Trades Today</span>
-            <span className="metric-value">{tokenTrades.length}</span>
-          </div>
-
-          <div className="metric-item">
-            <span className="metric-label">Active Positions</span>
-            <span className="metric-value" style={{ color: tokenActiveCount > 0 ? 'var(--amber)' : 'var(--muted)' }}>
-              {tokenActiveCount}
-            </span>
-          </div>
-
-          <input 
-            type="date" 
-            value={date} 
-            onChange={e => setDate(e.target.value)}
-            style={{ 
-              background: 'var(--surface)', 
-              border: '1px solid var(--border)', 
-              color: 'var(--text)', 
-              padding: '6px 12px', 
-              borderRadius: '8px',
-              fontFamily: 'Outfit',
-              fontSize: '13px'
-            }}
-          />
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
+        <input 
+          type="date" 
+          value={date} 
+          onChange={e => setDate(e.target.value)}
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px' }}
+        />
       </div>
 
       {/* ── EXCHANGE SECTIONS ── */}

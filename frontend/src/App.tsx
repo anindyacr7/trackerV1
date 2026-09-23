@@ -6,7 +6,7 @@ function App() {
   const [token, setToken] = useState<TokenSymbol>('BTC')
   const [flashMsg, setFlashMsg] = useState<{ high: number, low: number, updatedAt?: string } | null>(null)
 
-  const handleSyncStatusClick = async () => {
+  const handleTestClick = async () => {
     try {
       const exchangeQuery = token === 'US100' ? 'TradeLocker' : 'Propr'
       const res = await fetch(`https://tracker-worker.foxledger.workers.dev/api/live/heartbeat?exchange=${exchangeQuery}`)
@@ -29,14 +29,14 @@ function App() {
         <div className="flash-popup">
           <Activity size={24} color="var(--amber)" />
           <div className="flash-content">
-            <span className="flash-title">Live Heartbeat ({token})</span>
+            <span className="flash-title">Live Telemetry ({token})</span>
             <span className="flash-values">
               H: <span style={{ color: 'var(--teal)' }}>{flashMsg.high.toFixed(token === 'BTC' ? 1 : 2)}</span> &nbsp;
               L: <span style={{ color: 'var(--red)' }}>{flashMsg.low.toFixed(token === 'BTC' ? 1 : 2)}</span>
             </span>
             {flashMsg.updatedAt && (
               <span style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-                Synced: {flashMsg.updatedAt}
+                EC2 Bot Synced: {flashMsg.updatedAt}
               </span>
             )}
           </div>
@@ -48,27 +48,14 @@ function App() {
 
       <header>
         <div className="logo-row">
+          {/* Logo will be placed in public/ by user, falling back to a text if missing */}
           <img src="/pwa-192x192.png" alt="FoxAlgo Logo" className="logo-img" onError={(e) => { e.currentTarget.style.display='none' }} />
-          <div>
-            <h1 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              FoxAlgo
-              <span style={{ 
-                fontSize: '12px', 
-                fontWeight: 600, 
-                color: 'var(--teal)', 
-                background: 'var(--teal-dim)', 
-                padding: '2px 8px', 
-                borderRadius: '6px' 
-              }}>
-                Live
-              </span>
-            </h1>
-          </div>
+          <h1>FoxAlgo</h1>
         </div>
         <div className="toolbar">
-          <button className="btn-primary" onClick={handleSyncStatusClick}>
+          <button className="btn-primary" onClick={handleTestClick}>
             <Zap size={14} style={{ display: 'inline', marginRight: 4 }} />
-            Sync Status
+            Test Range
           </button>
         </div>
       </header>
