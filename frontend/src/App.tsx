@@ -1,213 +1,80 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { api } from './api';
-import type { Strategy, Phase, Entry } from './types';
-import StrategyManager from './components/StrategyManager';
-import PhaseManager from './components/PhaseManager';
-import StatsGrid from './components/StatsGrid';
-import Charts from './components/Charts';
-import EntryTable from './components/EntryTable';
-
-const PALETTE = ['#818cf8', '#34d399', '#f0a500', '#f472b6', '#60a5fa', '#fb923c', '#a78bfa', '#4ade80'];
-export const colorFor = (index: number) => PALETTE[index % PALETTE.length];
+import { useState } from 'react'
+import { Activity, Zap, X } from 'lucide-react'
+import LiveDashboard from './components/LiveDashboard'
 
 function App() {
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [searchParams, setSearchParams] = useSearchParams();
-  
-  const strategyParam = searchParams.get('strategy');
-  const activeStrategyId = strategyParam ? Number(strategyParam) : null;
-  const setActiveStrategyId = (id: number | null) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (id === null) {
-        next.delete('strategy');
-        next.delete('phase');
-      } else {
-        next.set('strategy', String(id));
-        next.delete('phase');
-      }
-      return next;
-    });
-  };
-  
-  const [phases, setPhases] = useState<Phase[]>([]);
-  const phaseParam = searchParams.get('phase');
-  const activePhaseId = phaseParam ? Number(phaseParam) : null;
-  const setActivePhaseId = (id: number | null) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (id === null) {
-        next.delete('phase');
-      } else {
-        next.set('phase', String(id));
-      }
-      return next;
-    });
-  };
-  
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [syncStatus, setSyncStatus] = useState<{state: 'synced'|'syncing'|'error', msg: string}>({state: 'syncing', msg: 'connecting...'});
+  const [exchange, setExchange] = useState<'Binance' | 'Lighter'>('Binance')
+  const [flashMsg, setFlashMsg] = useState<{ high: number, low: number } | null>(null)
 
-  useEffect(() => {
-    loadStrategies();
-  }, []);
-
-  const loadStrategies = async () => {
-    setSyncStatus({ state: 'syncing', msg: 'loading strategies...' });
+  const handleTestClick = async () => {
     try {
-      const data = await api.getStrategies();
-      setStrategies(data);
-      if (data.length > 0 && !activeStrategyId) {
-        setActiveStrategyId(data[0].id);
-      }
-      setSyncStatus({ state: 'synced', msg: 'synced · ' + new Date().toLocaleTimeString() });
-    } catch (e) {
-      setSyncStatus({ state: 'error', msg: 'sync error' });
-    }
-  };
-
-  useEffect(() => {
-    if (activeStrategyId) {
-      loadPhases(activeStrategyId);
-    }
-  }, [activeStrategyId]);
-
-  const loadPhases = async (strategyId: number) => {
-    try {
-      const data = await api.getPhases(strategyId);
-      setPhases(data);
-      if (data.length > 0) {
-        if (!activePhaseId || !data.find(p => p.id === activePhaseId)) {
-          setActivePhaseId(data[0].id);
-        }
-      } else {
-        setActivePhaseId(null);
+      // Fetch latest candle from public API (Mocked for Demo, but hitting Binance for real)
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=1`)
+      const data = await res.json()
+      if (data && data.length > 0) {
+        const high = parseFloat(data[0][2])
+        const low = parseFloat(data[0][3])
+        setFlashMsg({ high, low })
       }
     } catch (e) {
-      console.error(e);
+      console.error(e)
     }
-  };
-
-  useEffect(() => {
-    if (phases.length > 0) {
-      loadEntries();
-    } else {
-      setEntries([]);
-    }
-  }, [phases]);
-
-  const loadEntries = async () => {
-    setSyncStatus({ state: 'syncing', msg: 'loading entries...' });
-    try {
-      const ids = phases.map(p => p.id);
-      const data = await api.getEntries(ids);
-      setEntries(data);
-      setSyncStatus({ state: 'synced', msg: 'synced · ' + new Date().toLocaleTimeString() });
-    } catch (e) {
-      setSyncStatus({ state: 'error', msg: 'sync error' });
-    }
-  };
-
-  const exportCSV = () => {
-    const phaseLabel = phases.find(p => p.id === activePhaseId)?.label || 'phase';
-    const ph = entries.filter(e => e.phase_id === activePhaseId);
-    if (ph.length === 0) { alert('No entries to export.'); return; }
-    const header = 'Historical Week,Weekly R,Trades,Wins,Losses,Win%,Phase\n';
-    const rows = ph.map(e => {
-      const wins = e.wins || 0;
-      const losses = e.losses || 0;
-      const wp = e.trades > 0 ? ((wins)/e.trades*100).toFixed(1)+'%' : '';
-      return `"${e.week}",${e.r},${e.trades},${wins},${losses},${wp},"${phaseLabel}"`;
-    }).join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `backtest_${phaseLabel.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-  };
-
-  const clearAll = async () => {
-    if (!activePhaseId) return;
-    if (!confirm(`Delete ALL entries for this phase? This cannot be undone.`)) return;
-    setSyncStatus({ state: 'syncing', msg: 'clearing...' });
-    try {
-      await api.clearEntries(activePhaseId);
-      setEntries(entries.filter(e => e.phase_id !== activePhaseId));
-      setSyncStatus({ state: 'synced', msg: 'cleared' });
-    } catch (e) {
-      setSyncStatus({ state: 'error', msg: 'clear failed' });
-    }
-  };
+  }
 
   return (
     <div className="app-container">
+      {flashMsg && (
+        <div className="flash-popup">
+          <Activity size={24} color="var(--amber)" />
+          <div className="flash-content">
+            <span className="flash-title">Live 5m Candle ({exchange})</span>
+            <span className="flash-values">
+              H: <span style={{ color: 'var(--teal)' }}>{flashMsg.high.toFixed(1)}</span> &nbsp;
+              L: <span style={{ color: 'var(--red)' }}>{flashMsg.low.toFixed(1)}</span>
+            </span>
+          </div>
+          <button className="flash-close" onClick={() => setFlashMsg(null)}>
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
       <header>
-        <div className="header-left">
-          <div className="logo-row">
-            <div className="logo-dot"></div>
-            <h1>Tracker</h1>
-          </div>
-          <div className="sync-row">
-            <div className={`sync-dot ${syncStatus.state}`}></div>
-            <div className="sync-label">{syncStatus.msg}</div>
-          </div>
+        <div className="logo-row">
+          {/* Logo will be placed in public/ by user, falling back to a text if missing */}
+          <img src="/pwa-192x192.png" alt="FoxAlgo Logo" className="logo-img" onError={(e) => { e.currentTarget.style.display='none' }} />
+          <h1>FoxAlgo</h1>
         </div>
         <div className="toolbar">
-          <button className="btn-ghost" onClick={exportCSV}>↓ Export CSV</button>
-          <button className="btn-ghost" onClick={clearAll}>✕ Clear Phase Entries</button>
+          <button className="btn-primary" onClick={handleTestClick}>
+            <Zap size={14} style={{ display: 'inline', marginRight: 4 }} />
+            Test Range
+          </button>
         </div>
       </header>
 
-      <StrategyManager 
-        strategies={strategies} 
-        activeStrategyId={activeStrategyId} 
-        setActiveStrategyId={setActiveStrategyId}
-        onRefresh={loadStrategies}
-      />
+      <main>
+        <LiveDashboard exchange={exchange} />
+      </main>
 
-      {activeStrategyId && (
-        <div id="mainContent">
-          {phases.length === 0 ? (
-            <div className="empty-state">
-              <div>No phases yet for this strategy.</div>
-              <PhaseManager phases={phases} activeStrategyId={activeStrategyId} onRefresh={() => loadPhases(activeStrategyId)} isFirst />
-            </div>
-          ) : (
-            <>
-              <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'14px',gap:'8px',flexWrap:'wrap'}}>
-                <div className="phase-toggle">
-                  {phases.map((p, i) => (
-                    <button 
-                      key={p.id}
-                      className={`phase-btn ${p.id === activePhaseId ? 'active' : ''}`}
-                      style={p.id === activePhaseId ? { background: colorFor(i) } : {}}
-                      onClick={() => setActivePhaseId(p.id)}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <PhaseManager phases={phases} activeStrategyId={activeStrategyId} onRefresh={() => loadPhases(activeStrategyId)} />
-              </div>
-
-              {activePhaseId && (
-                <>
-                  <StatsGrid phase={phases.find(p => p.id === activePhaseId)!} entries={entries} phaseIndex={phases.findIndex(p => p.id === activePhaseId)} />
-                  <Charts phase={phases.find(p => p.id === activePhaseId)!} entries={entries} phaseIndex={phases.findIndex(p => p.id === activePhaseId)} />
-                  <EntryTable 
-                    phase={phases.find(p => p.id === activePhaseId)!} 
-                    entries={entries} 
-                    onRefresh={loadEntries} 
-                  />
-                </>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      <div className="footer-nav">
+        <button 
+          className={`nav-item ${exchange === 'Binance' ? 'active' : ''}`}
+          onClick={() => setExchange('Binance')}
+        >
+          <img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.svg?v=032" width="16" alt="Binance" />
+          Binance
+        </button>
+        <button 
+          className={`nav-item ${exchange === 'Lighter' ? 'active' : ''}`}
+          onClick={() => setExchange('Lighter')}
+        >
+          <Activity size={16} />
+          Lighter
+        </button>
+      </div>
     </div>
-  );
+  )
 }
 
-export default App;
+export default App

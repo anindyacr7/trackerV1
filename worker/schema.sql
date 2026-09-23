@@ -30,3 +30,39 @@ CREATE TABLE IF NOT EXISTS entries (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (phase_id) REFERENCES phases(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS live_ranges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange TEXT NOT NULL,
+  date TEXT NOT NULL,
+  session_type TEXT NOT NULL,
+  range_start DATETIME,
+  range_high REAL,
+  range_low REAL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS live_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange TEXT NOT NULL,
+  trade_num INTEGER,
+  side TEXT,
+  entry_price REAL,
+  tp_price REAL,
+  sl_price REAL,
+  exit_price REAL,
+  pnl REAL,
+  status TEXT,
+  open_time DATETIME,
+  close_time DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS live_heartbeat (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  exchange TEXT NOT NULL,
+  high REAL NOT NULL,
+  low REAL NOT NULL,
+  close REAL NOT NULL,
+  updated_at TEXT NOT NULL
+);
