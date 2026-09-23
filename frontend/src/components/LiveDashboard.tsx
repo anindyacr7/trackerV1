@@ -27,7 +27,7 @@ interface Trade {
   close_time: string | null
 }
 
-export default function LiveDashboard({ exchange }: { exchange: 'Binance' | 'Lighter' }) {
+export default function LiveDashboard({ exchange }: { exchange: 'Binance' | 'Lighter' | 'Propr' }) {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [ranges, setRanges] = useState<Range[]>([])
   const [trades, setTrades] = useState<Trade[]>([])

@@ -3,18 +3,19 @@ import { Activity, Zap, X } from 'lucide-react'
 import LiveDashboard from './components/LiveDashboard'
 
 function App() {
-  const [exchange, setExchange] = useState<'Binance' | 'Lighter'>('Binance')
-  const [flashMsg, setFlashMsg] = useState<{ high: number, low: number } | null>(null)
+  const [exchange, setExchange] = useState<'Binance' | 'Lighter' | 'Propr'>('Binance')
+  const [flashMsg, setFlashMsg] = useState<{ high: number, low: number, updatedAt?: string } | null>(null)
 
   const handleTestClick = async () => {
     try {
-      // Fetch latest candle from public API (Mocked for Demo, but hitting Binance for real)
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=1`)
+      const res = await fetch(`https://tracker-worker.foxledger.workers.dev/api/live/heartbeat?exchange=${exchange}`)
       const data = await res.json()
-      if (data && data.length > 0) {
-        const high = parseFloat(data[0][2])
-        const low = parseFloat(data[0][3])
-        setFlashMsg({ high, low })
+      if (data && data.high) {
+        setFlashMsg({ 
+          high: data.high, 
+          low: data.low,
+          updatedAt: new Date(data.updated_at).toLocaleTimeString()
+        })
       }
     } catch (e) {
       console.error(e)
@@ -27,11 +28,16 @@ function App() {
         <div className="flash-popup">
           <Activity size={24} color="var(--amber)" />
           <div className="flash-content">
-            <span className="flash-title">Live 5m Candle ({exchange})</span>
+            <span className="flash-title">Live Telemetry ({exchange})</span>
             <span className="flash-values">
               H: <span style={{ color: 'var(--teal)' }}>{flashMsg.high.toFixed(1)}</span> &nbsp;
               L: <span style={{ color: 'var(--red)' }}>{flashMsg.low.toFixed(1)}</span>
             </span>
+            {flashMsg.updatedAt && (
+              <span style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                EC2 Bot Synced: {flashMsg.updatedAt}
+              </span>
+            )}
           </div>
           <button className="flash-close" onClick={() => setFlashMsg(null)}>
             <X size={18} />
@@ -71,6 +77,13 @@ function App() {
         >
           <Activity size={16} />
           Lighter
+        </button>
+        <button 
+          className={`nav-item ${exchange === 'Propr' ? 'active' : ''}`}
+          onClick={() => setExchange('Propr')}
+        >
+          <Zap size={16} />
+          Propr
         </button>
       </div>
     </div>
