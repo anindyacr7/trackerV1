@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { Activity, Zap, X } from 'lucide-react'
-import LiveDashboard from './components/LiveDashboard'
+import { Activity, Zap, TrendingUp, X } from 'lucide-react'
+import LiveDashboard, { type TokenSymbol } from './components/LiveDashboard'
 
 function App() {
-  const [exchange, setExchange] = useState<'Binance' | 'Lighter' | 'Propr'>('Binance')
+  const [token, setToken] = useState<TokenSymbol>('BTC')
   const [flashMsg, setFlashMsg] = useState<{ high: number, low: number, updatedAt?: string } | null>(null)
 
-  const handleTestClick = async () => {
+  const handleSyncStatusClick = async () => {
     try {
-      const res = await fetch(`https://tracker-worker.foxledger.workers.dev/api/live/heartbeat?exchange=${exchange}`)
+      const exchangeQuery = token === 'US100' ? 'TradeLocker' : 'Propr'
+      const res = await fetch(`https://tracker-worker.foxledger.workers.dev/api/live/heartbeat?exchange=${exchangeQuery}`)
       const data = await res.json()
       if (data && data.high) {
         setFlashMsg({ 
@@ -28,14 +29,14 @@ function App() {
         <div className="flash-popup">
           <Activity size={24} color="var(--amber)" />
           <div className="flash-content">
-            <span className="flash-title">Live Telemetry ({exchange})</span>
+            <span className="flash-title">Live Heartbeat ({token})</span>
             <span className="flash-values">
-              H: <span style={{ color: 'var(--teal)' }}>{flashMsg.high.toFixed(1)}</span> &nbsp;
-              L: <span style={{ color: 'var(--red)' }}>{flashMsg.low.toFixed(1)}</span>
+              H: <span style={{ color: 'var(--teal)' }}>{flashMsg.high.toFixed(token === 'BTC' ? 1 : 2)}</span> &nbsp;
+              L: <span style={{ color: 'var(--red)' }}>{flashMsg.low.toFixed(token === 'BTC' ? 1 : 2)}</span>
             </span>
             {flashMsg.updatedAt && (
               <span style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-                EC2 Bot Synced: {flashMsg.updatedAt}
+                Synced: {flashMsg.updatedAt}
               </span>
             )}
           </div>
@@ -47,43 +48,59 @@ function App() {
 
       <header>
         <div className="logo-row">
-          {/* Logo will be placed in public/ by user, falling back to a text if missing */}
           <img src="/pwa-192x192.png" alt="FoxAlgo Logo" className="logo-img" onError={(e) => { e.currentTarget.style.display='none' }} />
-          <h1>FoxAlgo</h1>
+          <div>
+            <h1 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              FoxAlgo
+              <span style={{ 
+                fontSize: '12px', 
+                fontWeight: 600, 
+                color: 'var(--teal)', 
+                background: 'var(--teal-dim)', 
+                padding: '2px 8px', 
+                borderRadius: '6px' 
+              }}>
+                Live
+              </span>
+            </h1>
+          </div>
         </div>
         <div className="toolbar">
-          <button className="btn-primary" onClick={handleTestClick}>
+          <button className="btn-primary" onClick={handleSyncStatusClick}>
             <Zap size={14} style={{ display: 'inline', marginRight: 4 }} />
-            Test Range
+            Sync Status
           </button>
         </div>
       </header>
 
       <main>
-        <LiveDashboard exchange={exchange} />
+        <LiveDashboard token={token} />
       </main>
 
+      {/* ── BOTTOM NAVBAR BASED ON TOKEN ── */}
       <div className="footer-nav">
         <button 
-          className={`nav-item ${exchange === 'Binance' ? 'active' : ''}`}
-          onClick={() => setExchange('Binance')}
+          className={`nav-item ${token === 'BTC' ? 'active' : ''}`}
+          onClick={() => setToken('BTC')}
         >
-          <img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.svg?v=032" width="16" alt="Binance" />
-          Binance
+          <span style={{ fontSize: '18px', fontWeight: 800 }}>₿</span>
+          <span>BTC</span>
         </button>
+
         <button 
-          className={`nav-item ${exchange === 'Lighter' ? 'active' : ''}`}
-          onClick={() => setExchange('Lighter')}
+          className={`nav-item ${token === 'ETH' ? 'active' : ''}`}
+          onClick={() => setToken('ETH')}
         >
-          <Activity size={16} />
-          Lighter
+          <span style={{ fontSize: '18px', fontWeight: 800 }}>Ξ</span>
+          <span>ETH</span>
         </button>
+
         <button 
-          className={`nav-item ${exchange === 'Propr' ? 'active' : ''}`}
-          onClick={() => setExchange('Propr')}
+          className={`nav-item ${token === 'US100' ? 'active' : ''}`}
+          onClick={() => setToken('US100')}
         >
-          <Zap size={16} />
-          Propr
+          <TrendingUp size={18} />
+          <span>US100</span>
         </button>
       </div>
     </div>

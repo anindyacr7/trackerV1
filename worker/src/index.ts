@@ -123,24 +123,28 @@ app.delete('/api/entries', async (c) => {
 // LIVE TELEMETRY
 app.post('/api/live/range', async (c) => {
   const body = await c.req.json()
-  const { exchange, date, session_type, range_start, range_high, range_low } = body
+  const { exchange, date, session_type, range_start, range_high, range_low, symbol } = body
   
-  // Check if range already exists for this date/exchange/session
-  const existing = await c.env.DB.prepare('SELECT id FROM live_ranges WHERE exchange = ? AND date = ? AND session_type = ?')
-    .bind(exchange, date, session_type)
-    .first()
+  // Check if range already exists for this date/exchange/session/symbol
+  const existing = symbol
+    ? await c.env.DB.prepare('SELECT id FROM live_ranges WHERE exchange = ? AND date = ? AND session_type = ? AND (symbol = ? OR symbol IS NULL)')
+        .bind(exchange, date, session_type, symbol)
+        .first()
+    : await c.env.DB.prepare('SELECT id FROM live_ranges WHERE exchange = ? AND date = ? AND session_type = ?')
+        .bind(exchange, date, session_type)
+        .first()
 
   if (existing) {
-    const { results } = await c.env.DB.prepare('UPDATE live_ranges SET range_start = ?, range_high = ?, range_low = ? WHERE id = ? RETURNING *')
-      .bind(range_start, range_high, range_low, existing.id)
+    const { results } = await c.env.DB.prepare('UPDATE live_ranges SET range_start = ?, range_high = ?, range_low = ?, symbol = COALESCE(?, symbol) WHERE id = ? RETURNING *')
+      .bind(range_start, range_high, range_low, symbol, existing.id)
       .all()
     return c.json(results[0])
   } else {
     const { results } = await c.env.DB.prepare(`
-      INSERT INTO live_ranges (exchange, date, session_type, range_start, range_high, range_low)
-      VALUES (?, ?, ?, ?, ?, ?) RETURNING *
+      INSERT INTO live_ranges (exchange, date, session_type, range_start, range_high, range_low, symbol)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *
     `)
-      .bind(exchange, date, session_type, range_start, range_high, range_low)
+      .bind(exchange, date, session_type, range_start, range_high, range_low, symbol)
       .all()
     return c.json(results[0])
   }
@@ -148,27 +152,40 @@ app.post('/api/live/range', async (c) => {
 
 app.post('/api/live/trade', async (c) => {
   const body = await c.req.json()
-  const { exchange, trade_num, side, entry_price, tp_price, sl_price, exit_price, pnl, status, open_time, close_time } = body
+  const { exchange, trade_num, side, entry_price, tp_price, sl_price, exit_price, pnl, status, open_time, close_time, session_type, symbol } = body
   
-  // Check if trade exists
-  const existing = await c.env.DB.prepare('SELECT id FROM live_trades WHERE exchange = ? AND trade_num = ?')
-    .bind(exchange, trade_num)
-    .first()
+  const tradeTime = open_time || new Date().toISOString()
+  const tradeDate = tradeTime.split('T')[0]
+
+  // Check if trade exists for this exchange, trade_num, session_type, symbol, and date
+  const existing = await c.env.DB.prepare(
+    'SELECT id FROM live_trades WHERE exchange = ? AND trade_num = ? AND DATE(open_time) = ? AND (session_type = ? OR session_type IS NULL) AND (symbol = ? OR symbol IS NULL)'
+  ).bind(exchange, trade_num, tradeDate, session_type, symbol).first()
 
   if (existing) {
     const { results } = await c.env.DB.prepare(`
-      UPDATE live_trades SET sl_price = ?, exit_price = ?, pnl = ?, status = ?, close_time = ?
+      UPDATE live_trades SET 
+        side = COALESCE(?, side),
+        entry_price = COALESCE(?, entry_price),
+        tp_price = COALESCE(?, tp_price),
+        sl_price = ?, 
+        exit_price = ?, 
+        pnl = ?, 
+        status = ?, 
+        close_time = ?,
+        session_type = COALESCE(?, session_type),
+        symbol = COALESCE(?, symbol)
       WHERE id = ? RETURNING *
     `)
-      .bind(sl_price, exit_price, pnl, status, close_time, existing.id)
+      .bind(side, entry_price, tp_price, sl_price, exit_price, pnl, status, close_time, session_type, symbol, existing.id)
       .all()
     return c.json(results[0])
   } else {
     const { results } = await c.env.DB.prepare(`
-      INSERT INTO live_trades (exchange, trade_num, side, entry_price, tp_price, sl_price, status, open_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
+      INSERT INTO live_trades (exchange, trade_num, side, entry_price, tp_price, sl_price, exit_price, pnl, status, open_time, close_time, session_type, symbol)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
     `)
-      .bind(exchange, trade_num, side, entry_price, tp_price, sl_price, status, open_time)
+      .bind(exchange, trade_num, side, entry_price, tp_price, sl_price, exit_price, pnl, status, tradeTime, close_time, session_type, symbol)
       .all()
     return c.json(results[0])
   }
@@ -180,11 +197,11 @@ app.get('/api/live/dashboard', async (c) => {
   const { results: ranges } = await c.env.DB.prepare(`
     SELECT * FROM live_ranges 
     WHERE id IN (
-      SELECT MAX(id) FROM live_ranges WHERE date = ? GROUP BY exchange, session_type
+      SELECT MAX(id) FROM live_ranges WHERE date = ? GROUP BY exchange, session_type, COALESCE(symbol, '')
     )
     ORDER BY range_start ASC
   `).bind(date).all()
-  const { results: trades } = await c.env.DB.prepare('SELECT * FROM live_trades WHERE DATE(open_time) = ? OR status = "OPEN" ORDER BY open_time ASC').bind(date).all()
+  const { results: trades } = await c.env.DB.prepare('SELECT * FROM live_trades WHERE DATE(open_time) = ? ORDER BY open_time ASC').bind(date).all()
   
   return c.json({ ranges, trades })
 })

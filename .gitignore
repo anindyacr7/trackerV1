@@ -1,0 +1,27 @@
+# Secrets
+creds.txt
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+*.log
+
+# Node
+node_modules/
+dist/
+build/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
