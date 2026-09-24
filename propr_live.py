@@ -42,9 +42,9 @@ from btc_strategy_v2 import (
 log = logging.getLogger("ProprLive")
 
 IST = ZoneInfo("Asia/Kolkata")
-RISK_USDT = 25.0       # $25 risk per trade (0.5% on $5,000 prop firm challenge)
+RISK_USDT = 10.0       # $10 risk per trade (0.2% on $5,000 prop firm challenge)
 
-DEFAULT_BTC_ACCOUNT = "urn:prp-account:CRPYZs8zyarB"
+DEFAULT_BTC_ACCOUNT = "urn:prp-account:NgyCFTUnJ9gd"
 DEFAULT_ETH_ACCOUNT = "urn:prp-account:NgyCFTUnJ9gd"
 
 
@@ -541,6 +541,7 @@ class ProprLiveRunner:
 
         def patched_open(session, side, entry, rng, now):
             trade = original_open(session, side, entry, rng, now)
+            trade.risk_usd = RISK_USDT
             if not self.is_bootstrapping:
                 ticker_price = self._get_current_price() or entry
                 self.executor.open_position(trade, ticker_price)
