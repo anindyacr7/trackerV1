@@ -10,6 +10,7 @@ Executes 5m Session Range Breakout strategy on NASDAQ 100 Index CFD (US100):
   - Once filled: Native Stop Loss & Take Profit (5R) managed on TradeLocker
   - Trailing SL: 1.7R -> 1R, 2.8R -> 2R, 3.8R -> 3R, 4.8R -> 4R
   - Telemetry: Real-time ranges, trades, and heartbeats to FoxLedger dashboard
+  - PURE LIVE ENGINE: Exchange position is the single source of truth. No simulated candle replay.
 """
 
 import os
@@ -56,6 +57,39 @@ INSTRUMENT_ID = 4858       # US100 tradableInstrumentId in FTRM TradeLocker
 
 
 # ─────────────────────────────────────────────
+#  RANGE CALCULATION (DYNAMIC FOR US100)
+# ─────────────────────────────────────────────
+
+def find_us100_range(candles: List[Candle], start_time: Optional[datetime] = None) -> Optional[Range]:
+    """Find initial 2-candle breakout range with US100 0.01% buffer and 0.005% bodyless filter."""
+    if start_time:
+        candles = [c for c in candles if c.timestamp >= start_time]
+
+    for i in range(len(candles) - 1):
+        c1, c2 = candles[i], candles[i + 1]
+        cmp = (c1.close + c2.close) / 2.0
+
+        buffer = round(cmp * 0.0001, 2)
+        bodyless_thresh = round(cmp * 0.00005, 2)
+
+        b1 = abs(c1.close - c1.open)
+        b2 = abs(c2.close - c2.open)
+        if b1 < bodyless_thresh or b2 < bodyless_thresh:
+            continue
+
+        c1_red = c1.close < c1.open
+        c2_red = c2.close < c2.open
+        if (c1_red and not c2_red) or (not c1_red and c2_red):
+            return Range(
+                upper=max(c1.high, c2.high) + buffer,
+                lower=min(c1.low, c2.low) - buffer,
+                candle1=c1,
+                candle2=c2,
+            )
+    return None
+
+
+# ─────────────────────────────────────────────
 #  TRADELOCKER ORDER EXECUTOR
 # ─────────────────────────────────────────────
 
@@ -65,6 +99,7 @@ class TradeLockerOrderExecutor:
       - Places limit buy/sell order at range boundary with attached SL and TP
       - Monitors fill status
       - Trails SL on open positions
+      - Guaranteed market close on position exit
     """
 
     def __init__(self, tl_client: TLAPI, instrument_id: int = INSTRUMENT_ID):
@@ -73,6 +108,7 @@ class TradeLockerOrderExecutor:
         self.lot_size = 20.0       # 1 standard lot = 20 contracts
         self.min_lot = 0.01
         self.lot_step = 0.01
+        self.emergency_buffer = 5.0
         self.pending_order: Optional[Dict[str, Any]] = None
         self.active_position_id: Optional[int] = None
         self.active_trade: Optional[Trade] = None
@@ -81,10 +117,7 @@ class TradeLockerOrderExecutor:
         """Calculate lots for fixed $10 risk."""
         if risk_pts <= 0:
             return self.min_lot
-        # contracts = risk_usd / risk_pts
-        # lots = contracts / lot_size
         lots = RISK_USD / (risk_pts * self.lot_size)
-        # Round down to lot_step
         steps = int(lots / self.lot_step)
         final_lots = round(steps * self.lot_step, 2)
         return max(self.min_lot, final_lots)
@@ -132,7 +165,6 @@ class TradeLockerOrderExecutor:
     def check_orders_and_positions(self) -> Optional[Trade]:
         """Poll TradeLocker to detect if limit order has filled into a position."""
         try:
-            # Check positions
             positions = self.tl.get_all_positions()
             if hasattr(positions, 'to_dict'):
                 pos_list = positions.to_dict('records')
@@ -141,7 +173,6 @@ class TradeLockerOrderExecutor:
             else:
                 pos_list = []
 
-            # Find position matching our instrument
             us100_positions = [
                 p for p in pos_list
                 if int(p.get('tradableInstrumentId', 0)) == self.instrument_id
@@ -155,13 +186,7 @@ class TradeLockerOrderExecutor:
                     log.info(f"  US100 Position active! Position ID: {pos_id} | Side: {pos.get('side')} | Open: {pos.get('avgPrice')}")
                     self.pending_order = None
                     return self.active_trade
-            else:
-                if self.active_position_id is not None:
-                    log.info(f"  Position {self.active_position_id} closed on TradeLocker.")
-                    self.active_position_id = None
-                    self.active_trade = None
 
-            # If pending order exists, check if still in open orders
             if self.pending_order:
                 orders = self.tl.get_all_orders()
                 if hasattr(orders, 'to_dict'):
@@ -170,7 +195,7 @@ class TradeLockerOrderExecutor:
                     ord_list = orders
                 else:
                     ord_list = []
-                
+
                 oid = self.pending_order["order_id"]
                 still_open = any(int(o.get('id', 0)) == oid for o in ord_list)
                 if not still_open and not us100_positions:
@@ -195,7 +220,7 @@ class TradeLockerOrderExecutor:
             )
             log.info(f"  SL Trailed → {new_sl:.2f} on Position {self.active_position_id}")
         except Exception as e:
-            log.error(f"  Failed to trail SL: {e}")
+            log.error(f"  Failed to trail SL on TradeLocker: {e}")
 
     def cancel_pending(self, reason: str = ""):
         """Cancel any pending limit order."""
@@ -208,6 +233,94 @@ class TradeLockerOrderExecutor:
         except Exception as e:
             log.warning(f"Failed to cancel order {oid}: {e}")
         self.pending_order = None
+
+    def close_trade_orders(self, reason: str = ""):
+        """Cancels pending order AND guarantees the active TradeLocker position is closed."""
+        self.cancel_pending(reason=f"trade closed ({reason})")
+        try:
+            positions = self.tl.get_all_positions()
+            if hasattr(positions, 'to_dict'):
+                pos_list = positions.to_dict('records')
+            elif isinstance(positions, list):
+                pos_list = positions
+            else:
+                pos_list = []
+
+            us100_positions = [
+                p for p in pos_list
+                if int(p.get('tradableInstrumentId', 0)) == self.instrument_id
+            ]
+
+            if us100_positions:
+                for p in us100_positions:
+                    pid = int(p.get('id', 0))
+                    log.info(f"Closing active TradeLocker position {pid} ({reason})...")
+                    self.tl.close_position(pid)
+                    log.info(f"Position {pid} closed successfully.")
+            self.active_position_id = None
+        except Exception as e:
+            log.error(f"close_trade_orders error on TradeLocker: {e}")
+
+    def sync_active_trade(self, trade: Trade, current_price: float, now_ist: datetime) -> Optional[str]:
+        """
+        Reconciles the open trade with real TradeLocker positions:
+        - If position is closed: detects exit and returns exit event.
+        - If position is open: trails SL or enforces cutoff/emergency exits.
+        """
+        try:
+            positions = self.tl.get_all_positions()
+            if hasattr(positions, 'to_dict'):
+                pos_list = positions.to_dict('records')
+            elif isinstance(positions, list):
+                pos_list = positions
+            else:
+                pos_list = []
+
+            us100_positions = [
+                p for p in pos_list
+                if int(p.get('tradableInstrumentId', 0)) == self.instrument_id
+            ]
+        except Exception as e:
+            log.warning(f"sync_active_trade get_all_positions error: {e}")
+            return None
+
+        # ── 1. POSITION IS FLAT ON TRADELOCKER ──
+        if not us100_positions:
+            log.info("Position for US100 is confirmed FLAT on TradeLocker.")
+            self.active_position_id = None
+            self.cancel_pending(reason="position flat")
+
+            is_long = (trade.side == Side.LONG)
+            tp_touched = (current_price >= trade.tp_price) if is_long else (current_price <= trade.tp_price)
+            if tp_touched:
+                log.info(f"TradeLocker Take Profit reached @ {trade.tp_price:.2f} (5R)!")
+                return "CLOSED_TP"
+
+            is_trail = trade.sl_at_entry
+            return "CLOSED_TRAIL_SL" if is_trail else "CLOSED_SL"
+
+        # ── 2. POSITION IS ACTIVE ON TRADELOCKER ──
+        pos = us100_positions[0]
+        self.active_position_id = int(pos.get('id', 0))
+
+        # Trailing SL update based on CMP
+        if current_price > 0:
+            old_sl = trade.sl_price
+            if abs(trade.sl_price - old_sl) > 0.5:
+                self.amend_sl(trade.sl_price)
+
+        # Emergency SL safety check: if market blown past SL by > emergency buffer
+        is_long = (trade.side == Side.LONG)
+        breached = (current_price <= trade.sl_price - self.emergency_buffer) if is_long else (current_price >= trade.sl_price + self.emergency_buffer)
+        if breached and current_price > 0:
+            log.warning(
+                f"EMERGENCY: Price {current_price:.2f} breached SL {trade.sl_price:.2f} "
+                f"without exchange trigger! Executing position close on TradeLocker..."
+            )
+            self.close_trade_orders(reason="EMERGENCY_SL")
+            return "CLOSED_EMERGENCY"
+
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -234,14 +347,12 @@ class TradeLockerLiveRunner:
             server=server
         )
 
-        # Confirm account state
         state = self.tl.get_account_state()
         balance = state.get('balance', 0.0)
         log.info(f"Connected to TradeLocker! Account Balance: ${balance:,.2f} USD")
 
         self.executor = TradeLockerOrderExecutor(self.tl, INSTRUMENT_ID)
         self._last_candle_ts: Optional[datetime] = None
-        self._last_sl_sent: Dict[int, float] = {}
 
     def start(self):
         log.info("=== TradeLocker US100 Live Runner Started ===")
@@ -252,12 +363,10 @@ class TradeLockerLiveRunner:
     def _patch_engine(self):
         original_open = self.engine._open_trade
         original_close = self.engine._close_trade
-        original_update = self.engine._update_trail
 
         def patched_open(session, side, entry, rng, now):
             trade = original_open(session, side, entry, rng, now)
             if not self.is_bootstrapping:
-                self._last_sl_sent[trade.id] = trade.sl_price
                 self.executor.place_breakout_limit(trade, boundary=entry)
                 try:
                     asyncio.run(post_telemetry_trade("TradeLocker", trade, symbol=SYMBOL))
@@ -268,24 +377,14 @@ class TradeLockerLiveRunner:
         def patched_close(trade, exit_price, now, reason):
             original_close(trade, exit_price, now, reason)
             if not self.is_bootstrapping:
-                self.executor.cancel_pending(reason=f"trade closed ({reason})")
+                self.executor.close_trade_orders(reason=reason)
                 try:
                     asyncio.run(post_telemetry_trade("TradeLocker", trade, symbol=SYMBOL))
                 except Exception as e:
                     log.warning(f"Telemetry close trade error: {e}")
 
-        def patched_update(trade, price):
-            action = original_update(trade, price)
-            if not self.is_bootstrapping:
-                last_sl = self._last_sl_sent.get(trade.id, 0)
-                if abs(trade.sl_price - last_sl) > 0.5:
-                    self.executor.amend_sl(trade.sl_price)
-                    self._last_sl_sent[trade.id] = trade.sl_price
-            return action
-
         self.engine._open_trade = patched_open
         self.engine._close_trade = patched_close
-        self.engine._update_trail = patched_update
 
     def _fetch_candles(self, limit: int = 15) -> List[Candle]:
         """Fetch 5m bars for US100 via TradeLocker get_price_history."""
@@ -327,37 +426,8 @@ class TradeLockerLiveRunner:
         except Exception:
             return 0.0
 
-    def find_us100_range(self, candles: List[Candle], start_time: datetime = None) -> Optional[Range]:
-        """Custom range finder for US100 using 0.01% buffer and 0.005% bodyless filter."""
-        if start_time:
-            candles = [c for c in candles if c.timestamp >= start_time]
-
-        for i in range(len(candles) - 1):
-            c1, c2 = candles[i], candles[i + 1]
-            cmp = (c1.close + c2.close) / 2.0
-
-            # Dynamic buffer: 0.01% of CMP (~3.0 pts at 30,000)
-            buffer = round(cmp * 0.0001, 2)
-            bodyless_thresh = round(cmp * 0.00005, 2)
-
-            b1 = abs(c1.close - c1.open)
-            b2 = abs(c2.close - c2.open)
-            if b1 < bodyless_thresh or b2 < bodyless_thresh:
-                continue
-
-            c1_red = c1.close < c1.open
-            c2_red = c2.close < c2.open
-            if (c1_red and not c2_red) or (not c1_red and c2_red):
-                return Range(
-                    upper=max(c1.high, c2.high) + buffer,
-                    lower=min(c1.low, c2.low) - buffer,
-                    candle1=c1,
-                    candle2=c2,
-                )
-        return None
-
     def _bootstrap_active_session(self):
-        """Bootstrap the active session on startup."""
+        """Bootstrap the active session on startup without fake backtest simulation."""
         self.is_bootstrapping = True
         try:
             now_ist = datetime.now(tz=IST)
@@ -396,38 +466,67 @@ class TradeLockerLiveRunner:
             if not sess:
                 return
 
+            # Fetch session candles to find and lock range
             minutes_elapsed = int((now_ist - session_start_ist).total_seconds() / 60)
             candle_count = min(150, max(5, int(minutes_elapsed / 5) + 3))
             candles = self._fetch_candles(limit=candle_count)
 
             session_start_utc = session_start_ist.astimezone(timezone.utc)
-            now_utc = datetime.now(timezone.utc)
+            session_candles = [c for c in candles if c.timestamp >= session_start_utc]
+            sess.candle_buffer = session_candles
 
-            for c in candles:
-                if c.timestamp < session_start_utc:
-                    continue
-                if (now_utc - c.timestamp).total_seconds() < 290:
-                    continue
+            if len(sess.candle_buffer) >= 2:
+                found = find_us100_range(sess.candle_buffer, sess.start_time)
+                if found:
+                    sess.range = found
+                    log.info(f"Range locked | upper={found.upper:.2f} lower={found.lower:.2f} width={found.width:.2f}pts")
+                    try:
+                        asyncio.run(post_telemetry_range("TradeLocker", sess, symbol=SYMBOL))
+                    except Exception as e:
+                        log.warning(f"Telemetry range error: {e}")
 
-                self.engine.candle_idx += 1
-                sess.candle_buffer.append(c)
+            # RECONCILE WITH TRADELOCKER ON STARTUP (NO SIMULATED TRADES)
+            try:
+                positions = self.tl.get_all_positions()
+                if hasattr(positions, 'to_dict'):
+                    pos_list = positions.to_dict('records')
+                elif isinstance(positions, list):
+                    pos_list = positions
+                else:
+                    pos_list = []
 
-                just_locked = False
-                if sess.range is None and len(sess.candle_buffer) >= 2:
-                    found = self.find_us100_range(sess.candle_buffer, sess.start_time)
-                    if found:
-                        sess.range = found
-                        just_locked = True
-                        log.info(f"Range locked | upper={found.upper:.2f} lower={found.lower:.2f} width={found.width:.2f}pts")
-                        try:
-                            asyncio.run(post_telemetry_range("TradeLocker", sess, symbol=SYMBOL))
-                        except Exception as e:
-                            log.warning(f"Telemetry range error: {e}")
+                us100_positions = [
+                    p for p in pos_list
+                    if int(p.get('tradableInstrumentId', 0)) == INSTRUMENT_ID
+                ]
+                if us100_positions:
+                    pos = us100_positions[0]
+                    self.executor.active_position_id = int(pos.get('id', 0))
+                    pos_side = Side.LONG if pos.get('side', '').lower() == 'buy' else Side.SHORT
+                    log.info(f"Found active US100 position on TradeLocker during bootstrap: {pos}")
+                    if sess.range:
+                        trade = Trade(
+                            id=1,
+                            session_id=sess.id,
+                            trade_num=1,
+                            side=pos_side,
+                            entry_price=sess.range.upper if pos_side == Side.LONG else sess.range.lower,
+                            entry_boundary=sess.range.upper if pos_side == Side.LONG else sess.range.lower,
+                            sl_price=sess.range.lower if pos_side == Side.LONG else sess.range.upper,
+                            tp_price=(sess.range.upper + 5.0 * sess.range.width if pos_side == Side.LONG
+                                      else sess.range.lower - 5.0 * sess.range.width),
+                            risk_pts=sess.range.width,
+                            risk_usd=RISK_USD,
+                            entry_time=now_ist,
+                            entry_candle_idx=0,
+                        )
+                        sess.trades.append(trade)
+                        sess.active_trade = trade
+                        self.executor.active_trade = trade
+            except Exception as e:
+                log.warning(f"TradeLocker bootstrap position check warning: {e}")
 
-                if not just_locked:
-                    self.engine.process_candle(c, sess)
-
-            log.info(f"Bootstrap complete. Session candles: {len(sess.candle_buffer)}, Range locked: {sess.range is not None}, Completed trades: {len(sess.trades)}")
+            log.info(f"Bootstrap complete. Range locked: {sess.range is not None}, Active trade: {sess.active_trade is not None}")
         finally:
             self.is_bootstrapping = False
 
@@ -436,15 +535,19 @@ class TradeLockerLiveRunner:
         while True:
             try:
                 now_ist = datetime.now(tz=IST)
-
-                # Scheduler tick
                 self.scheduler.check(now_ist)
                 sess = self.engine.current_session
+                current_price = self._get_current_price()
 
-                # Check limit order fills and positions
-                self.executor.check_orders_and_positions()
+                # 1. Check limit order fills
+                filled_trade = self.executor.check_orders_and_positions()
+                if filled_trade:
+                    try:
+                        asyncio.run(post_telemetry_trade("TradeLocker", filled_trade, symbol=SYMBOL))
+                    except Exception as e:
+                        log.warning(f"Telemetry trade update error: {e}")
 
-                # Fetch latest 5m candles
+                # 2. Check 5m closed candles FOR RANGE DETECTION AND HEARTBEAT ONLY
                 candles = self._fetch_candles(limit=4)
                 if len(candles) >= 2:
                     last_closed = candles[-2]
@@ -459,14 +562,12 @@ class TradeLockerLiveRunner:
                         except Exception:
                             pass
 
-                        if sess and not self.engine._past_cutoff(sess, now_ist):
+                        if sess and sess.range is None:
                             sess.candle_buffer.append(last_closed)
-                            just_locked = False
-                            if sess.range is None and len(sess.candle_buffer) >= 2:
-                                found = self.find_us100_range(sess.candle_buffer, sess.start_time)
+                            if len(sess.candle_buffer) >= 2:
+                                found = find_us100_range(sess.candle_buffer, sess.start_time)
                                 if found:
                                     sess.range = found
-                                    just_locked = True
                                     log.info(
                                         f"Range locked | upper={found.upper:.2f} "
                                         f"lower={found.lower:.2f} width={found.width:.2f}pts"
@@ -476,43 +577,88 @@ class TradeLockerLiveRunner:
                                     except Exception as e:
                                         log.error(f"Telemetry range error: {e}")
 
-                            if not just_locked:
-                                self.engine.process_candle(last_closed, sess)
+                # 3. If an active trade is open: SYNC WITH REAL TRADELOCKER!
+                if sess and sess.active_trade and self.executor.pending_order is None:
+                    # Enforce Cutoff
+                    if self.engine._past_cutoff(sess, now_ist):
+                        log.info(f"Session cutoff reached at {now_ist.strftime('%H:%M:%S IST')}. Closing open position...")
+                        trade = sess.active_trade
+                        self.executor.close_trade_orders(reason="CUTOFF")
+                        self.engine._close_trade(trade, current_price, now_ist, "CUTOFF")
+                        sess.active_trade = None
+                        try:
+                            asyncio.run(post_telemetry_trade("TradeLocker", trade, symbol=SYMBOL))
+                        except Exception:
+                            pass
+                        continue
 
-                # Real-time Breakout Check: Trigger limit order instantly when price hits boundary
-                sess = self.engine.current_session
-                if sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
-                    ticker_price = self._get_current_price()
-                    if ticker_price > 0:
-                        # If hunting for breakout:
-                        if sess.active_trade is None and self.executor.pending_order is None and sess.can_take_new_trade:
-                            rng = sess.range
-                            if ticker_price >= rng.upper:
-                                side = sess.next_side()
-                                if side in (None, Side.LONG):
-                                    log.info(f"Real-time breakout: price {ticker_price:.2f} >= upper {rng.upper:.2f}! Placing Limit Buy...")
-                                    self.engine._open_trade(sess, Side.LONG, rng.upper, rng, now_ist)
-                            elif ticker_price <= rng.lower:
-                                side = sess.next_side()
-                                if side in (None, Side.SHORT):
-                                    log.info(f"Real-time breakout: price {ticker_price:.2f} <= lower {rng.lower:.2f}! Placing Limit Sell...")
-                                    self.engine._open_trade(sess, Side.SHORT, rng.lower, rng, now_ist)
+                    # Update trailing in memory first
+                    if current_price > 0:
+                        old_sl = sess.active_trade.sl_price
+                        self.engine._update_trail(sess.active_trade, current_price)
+                        if abs(sess.active_trade.sl_price - old_sl) > 0.5:
+                            self.executor.amend_sl(sess.active_trade.sl_price)
 
-                        # If pending limit order is waiting, check if market reversed across the range
-                        elif self.executor.pending_order:
-                            pending_trade = self.executor.pending_order['trade']
-                            if pending_trade.side == Side.LONG and ticker_price <= sess.range.lower:
-                                log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
-                                self.executor.cancel_pending(reason="Reversed through opposite boundary")
-                                sess.active_trade = None
-                            elif pending_trade.side == Side.SHORT and ticker_price >= sess.range.upper:
-                                log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
-                                self.executor.cancel_pending(reason="Reversed through opposite boundary")
-                                sess.active_trade = None
+                    # Reconcile with TradeLocker position
+                    exit_event = self.executor.sync_active_trade(sess.active_trade, current_price, now_ist)
+                    if exit_event:
+                        trade = sess.active_trade
+                        exit_price = current_price
+                        reason = exit_event.replace("CLOSED_", "")
 
-                        # If active trade is open and filled, update trailing SL
-                        elif sess.active_trade and self.executor.pending_order is None:
-                            self.engine._update_trail(sess.active_trade, ticker_price)
+                        if exit_event == "CLOSED_TP":
+                            exit_price = trade.tp_price
+                        elif exit_event in ("CLOSED_SL", "CLOSED_TRAIL_SL"):
+                            exit_price = trade.sl_price
+
+                        self.engine._close_trade(trade, exit_price, now_ist, reason)
+                        sess.active_trade = None
+
+                        try:
+                            asyncio.run(post_telemetry_trade("TradeLocker", trade, symbol=SYMBOL))
+                        except Exception as e:
+                            log.warning(f"Telemetry close trade error: {e}")
+
+                        # Determine if session target reached or if we retrade
+                        if exit_event in ("CLOSED_TP", "CLOSED_TRAIL_SL") or trade.sl_at_entry:
+                            sess.target_hit = True
+                            log.info(f"Session target achieved with profit/breakeven exit ({reason}). Done for session.")
+                        elif exit_event in ("CLOSED_SL", "CLOSED_EMERGENCY"):
+                            # Raw SL hit (loss): Check Retrade eligibility
+                            log.info(f"Trade {trade.trade_num} hit SL. Checking retrade (trades taken: {sess.trade_count}/{Config.MAX_TRADES})...")
+                            if sess.can_take_new_trade and not self.engine._past_cutoff(sess, now_ist):
+                                next_side = sess.next_side()
+                                if next_side:
+                                    entry_price = sess.range.upper if next_side == Side.LONG else sess.range.lower
+                                    log.info(f"RETRADE TRIGGERED: Placing opposite {next_side.value.upper()} limit order at {entry_price:.2f}...")
+                                    self.engine._open_trade(sess, next_side, entry_price, sess.range, now_ist)
+
+                # 4. If hunting for breakout:
+                elif sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
+                    if sess.active_trade is None and self.executor.pending_order is None and sess.can_take_new_trade:
+                        rng = sess.range
+                        if current_price >= rng.upper:
+                            side = sess.next_side()
+                            if side in (None, Side.LONG):
+                                log.info(f"Real-time breakout: price {current_price:.2f} >= upper {rng.upper:.2f}! Placing Limit Buy...")
+                                self.engine._open_trade(sess, Side.LONG, rng.upper, rng, now_ist)
+                        elif current_price <= rng.lower:
+                            side = sess.next_side()
+                            if side in (None, Side.SHORT):
+                                log.info(f"Real-time breakout: price {current_price:.2f} <= lower {rng.lower:.2f}! Placing Limit Sell...")
+                                self.engine._open_trade(sess, Side.SHORT, rng.lower, rng, now_ist)
+
+                    # If pending limit order is waiting, check if market reversed across the range
+                    elif self.executor.pending_order:
+                        pending_trade = self.executor.pending_order['trade']
+                        if pending_trade.side == Side.LONG and current_price <= sess.range.lower:
+                            log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
+                        elif pending_trade.side == Side.SHORT and current_price >= sess.range.upper:
+                            log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
 
             except Exception as e:
                 log.error(f"Main loop error: {e}", exc_info=True)

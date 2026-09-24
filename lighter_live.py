@@ -7,9 +7,10 @@ Executes 5m Session Range Breakout strategy on Lighter DEX:
   - ETH: Buffer = 0.01% of CMP (~0.25-0.30 pts), Bodyless = 0.005% of CMP, Market ID = 4095 (Testnet) / 0 (Mainnet)
   - Risk per trade: $25.00 USDT
   - Entry: Resting Limit Order placed upon range breakout
-  - Once filled: Native Stop Loss & Take Profit (5R) managed on Lighter
+  - Once filled: Native Stop Loss & Take Profit (5R) placed on Lighter
   - Trailing SL: 1.7R -> 1R, 2.8R -> 2R, 3.8R -> 3R, 4.8R -> 4R
   - Telemetry: Real-time ranges, trades, and heartbeats to FoxLedger dashboard
+  - PURE LIVE ENGINE: Exchange position is the single source of truth. No simulated candle replay.
 """
 
 import os
@@ -54,6 +55,7 @@ MARKET_CONFIG = {
         "size_decimals": 5,
         "min_qty": 0.0001,
         "slippage_room": 50.0,
+        "emergency_buffer": 5.0,
     },
     "ETH": {
         "testnet_market_id": 4095,
@@ -62,6 +64,7 @@ MARKET_CONFIG = {
         "size_decimals": 4,
         "min_qty": 0.001,
         "slippage_room": 2.0,
+        "emergency_buffer": 0.5,
     }
 }
 
@@ -129,12 +132,14 @@ class LighterOrderExecutor:
       - Polls fill status
       - Once filled, immediately places native SL & TP orders
       - Trails SL using modify_order
+      - Guaranteed market close on position exit
     """
 
     def __init__(self, signer_client: lighter.SignerClient, api_client: lighter.ApiClient,
-                 account_index: int, symbol: str = "BTC"):
+                 market_api_client: lighter.ApiClient, account_index: int, symbol: str = "BTC"):
         self.signer = signer_client
         self.api = api_client
+        self.market_api = market_api_client
         self.account_index = account_index
         self.symbol = symbol.upper()
         self.config = MARKET_CONFIG[self.symbol]
@@ -142,6 +147,7 @@ class LighterOrderExecutor:
         self.price_decimals = self.config["price_decimals"]
         self.size_decimals = self.config["size_decimals"]
         self.slippage_room = self.config["slippage_room"]
+        self.emergency_buffer = self.config["emergency_buffer"]
 
         self.idx_manager = OrderIndexManager()
         self.active_orders: Dict[int, Dict[str, Any]] = {}
@@ -165,6 +171,19 @@ class LighterOrderExecutor:
                         return abs(float(p.position))
         except Exception as e:
             log.warning(f"get_current_position error: {e}")
+        return 0.0
+
+    async def get_position_signed(self) -> float:
+        """Fetch signed position size: positive for Long, negative for Short, 0.0 for flat."""
+        try:
+            acc_api = lighter.AccountApi(self.api)
+            acc = await acc_api.account(by="index", value=str(self.account_index))
+            if acc and acc.accounts:
+                for p in acc.accounts[0].positions:
+                    if int(p.market_id) == self.market_id:
+                        return float(p.position)
+        except Exception as e:
+            log.warning(f"get_position_signed error: {e}")
         return 0.0
 
     async def place_breakout_limit(self, trade: Trade, boundary: float):
@@ -227,34 +246,42 @@ class LighterOrderExecutor:
         close_is_ask = not is_ask   # opposite side to close
 
         is_long = (trade.side == Side.LONG)
-        # SL order: trigger = sl_price, price = sl_price +/- slippage_room
         sl_trigger = self.to_lighter_price(trade.sl_price)
         sl_exec = (self.to_lighter_price(trade.sl_price - self.slippage_room) if is_long
                    else self.to_lighter_price(trade.sl_price + self.slippage_room))
 
-        # TP order: trigger = tp_price, price = tp_price +/- slippage_room
         tp_trigger = self.to_lighter_price(trade.tp_price)
         tp_exec = (self.to_lighter_price(trade.tp_price - self.slippage_room) if is_long
                    else self.to_lighter_price(trade.tp_price + self.slippage_room))
 
+        sl_placed = False
         try:
-            # 1. Stop Loss Limit (reduce-only)
-            _, _, err_sl = await self.signer.create_order(
-                market_index=self.market_id,
-                client_order_index=sl_idx,
-                base_amount=qty_int,
-                price=sl_exec,
-                is_ask=close_is_ask,
-                order_type=self.signer.ORDER_TYPE_STOP_LOSS_LIMIT,
-                time_in_force=self.signer.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,
-                reduce_only=True,
-                order_expiry=self.signer.DEFAULT_28_DAY_ORDER_EXPIRY,
-                trigger_price=sl_trigger,
-            )
-            if err_sl:
-                log.error(f"Failed to place Lighter SL: {err_sl}")
-            else:
-                log.info(f"  Lighter SL placed @ trigger={trade.sl_price:.2f} (idx={sl_idx})")
+            # 1. Stop Loss Limit (reduce-only) with retry
+            for attempt in range(3):
+                _, _, err_sl = await self.signer.create_order(
+                    market_index=self.market_id,
+                    client_order_index=sl_idx,
+                    base_amount=qty_int,
+                    price=sl_exec,
+                    is_ask=close_is_ask,
+                    order_type=self.signer.ORDER_TYPE_STOP_LOSS_LIMIT,
+                    time_in_force=self.signer.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,
+                    reduce_only=True,
+                    order_expiry=self.signer.DEFAULT_28_DAY_ORDER_EXPIRY,
+                    trigger_price=sl_trigger,
+                )
+                if not err_sl:
+                    log.info(f"  Lighter SL placed @ trigger={trade.sl_price:.2f} (idx={sl_idx})")
+                    sl_placed = True
+                    break
+                log.error(f"Failed attempt {attempt+1} to place Lighter SL: {err_sl}")
+                await asyncio.sleep(1)
+
+            # Safety: If SL could not be placed, emergency market close
+            if not sl_placed:
+                log.critical(f"FATAL: Could not place SL on Lighter! Emergency market closing position now!")
+                await self.market_close_position()
+                return
 
             # 2. Take Profit Limit (reduce-only)
             _, _, err_tp = await self.signer.create_order(
@@ -270,7 +297,7 @@ class LighterOrderExecutor:
                 trigger_price=tp_trigger,
             )
             if err_tp:
-                log.error(f"Failed to place Lighter TP: {err_tp}")
+                log.warning(f"Failed to place Lighter TP: {err_tp}")
             else:
                 log.info(f"  Lighter TP placed @ trigger={trade.tp_price:.2f} (idx={tp_idx})")
 
@@ -296,22 +323,11 @@ class LighterOrderExecutor:
 
         try:
             curr_pos = await self.get_current_position()
-            # If position opened or increased, limit order filled!
             if curr_pos > self._initial_pos_size + 0.00001:
                 log.info(f"  Pending Lighter limit order {entry_idx} FILLED at boundary {boundary:.2f}! Attaching SL & TP...")
                 self.pending_entry = None
                 await self._place_sl_tp(trade, qty_int, is_ask)
                 return trade
-
-            # Check if order is still active
-            order_api = lighter.OrderApi(self.api)
-            active = await order_api.account_active_orders(account_index=self.account_index)
-            order_list = getattr(active, 'orders', [])
-            still_open = any(int(getattr(o, 'client_order_index', 0)) == entry_idx for o in order_list)
-
-            if not still_open and curr_pos <= self._initial_pos_size:
-                log.warning(f"  Lighter order {entry_idx} no longer in active orders and no position change.")
-                self.pending_entry = None
         except Exception as e:
             log.warning(f"check_pending_entry error: {e}")
 
@@ -358,7 +374,48 @@ class LighterOrderExecutor:
         except Exception as e:
             log.error(f"amend_sl exception: {e}")
 
+    async def market_close_position(self):
+        """Immediately close any open position on this market via aggressive IOC order."""
+        try:
+            pos_sign = await self.get_position_signed()
+            if abs(pos_sign) <= 0.00001:
+                return
+
+            is_long = pos_sign > 0
+            close_is_ask = is_long
+            qty_int = self.to_lighter_size(abs(pos_sign))
+            close_idx = self.idx_manager.next()
+
+            order_api = lighter.OrderApi(self.market_api)
+            depth = await order_api.order_book_orders(market_id=self.config["mainnet_market_id"], limit=1)
+            if close_is_ask:
+                best_bid = float(depth.bids[0].price) if depth.bids else 0.0
+                price_int = self.to_lighter_price(best_bid - self.slippage_room * 2)
+            else:
+                best_ask = float(depth.asks[0].price) if depth.asks else 999999.0
+                price_int = self.to_lighter_price(best_ask + self.slippage_room * 2)
+
+            log.info(f"Executing emergency market close on Lighter for {abs(pos_sign)} {self.symbol}...")
+            _, _, err = await self.signer.create_order(
+                market_index=self.market_id,
+                client_order_index=close_idx,
+                base_amount=qty_int,
+                price=price_int,
+                is_ask=close_is_ask,
+                order_type=self.signer.ORDER_TYPE_LIMIT,
+                time_in_force=self.signer.ORDER_TIME_IN_FORCE_IMMEDIATE_OR_CANCEL,
+                reduce_only=True,
+                order_expiry=self.signer.DEFAULT_28_DAY_ORDER_EXPIRY,
+            )
+            if err:
+                log.error(f"Market close on Lighter error: {err}")
+            else:
+                log.info(f"Market close on Lighter executed successfully.")
+        except Exception as e:
+            log.error(f"market_close_position exception: {e}")
+
     async def close_trade_orders(self, trade_id: int, reason: str):
+        """Cancels resting orders AND verifies that the position on Lighter is actually flat."""
         await self.cancel_pending_entry(reason=f"trade closed ({reason})")
         orders = self.active_orders.pop(trade_id, None)
         if orders:
@@ -372,6 +429,78 @@ class LighterOrderExecutor:
                         )
                     except Exception as e:
                         log.warning(f"Cancel {k} error {oid}: {e}")
+
+        # CRITICAL SAFETY INVARIANT: Check if position is still open on Lighter!
+        try:
+            curr_pos = await self.get_current_position()
+            if curr_pos > 0.00001:
+                log.info(f"Position ({curr_pos} {self.symbol}) still open on Lighter during close ({reason}). Closing now...")
+                await self.market_close_position()
+        except Exception as e:
+            log.error(f"Failed to ensure position flat on Lighter: {e}")
+
+    async def sync_active_trade(self, trade: Trade, current_price: float, now_ist: datetime) -> Optional[str]:
+        """
+        Real-time reconciliation with Lighter:
+        - If position is closed on exchange: detects fill of SL/TP, cancels orphan order, returns exit event.
+        - If position is open: trails SL or enforces cutoff/emergency exits.
+        """
+        try:
+            curr_pos = await self.get_current_position()
+        except Exception as e:
+            log.warning(f"sync_active_trade get_current_position error: {e}")
+            return None
+
+        # ── 1. POSITION IS FLAT ON LIGHTER ──
+        if curr_pos <= 0.00001:
+            log.info(f"Position for {self.symbol} is confirmed FLAT on Lighter. Reconciling orders...")
+            orders = self.active_orders.pop(trade.id, None)
+            sl_idx = orders.get("sl") if orders else None
+            tp_idx = orders.get("tp") if orders else None
+
+            # Cancel remaining orphan orders
+            if orders:
+                for k in ["sl", "tp"]:
+                    oid = orders.get(k)
+                    if oid:
+                        try:
+                            await self.signer.cancel_order(
+                                market_index=self.market_id,
+                                order_index=oid
+                            )
+                        except Exception:
+                            pass
+
+            # Detect whether TP or SL was touched
+            is_long = (trade.side == Side.LONG)
+            tp_touched = (current_price >= trade.tp_price) if is_long else (current_price <= trade.tp_price)
+            if tp_touched:
+                log.info(f"Lighter Take Profit reached @ {trade.tp_price:.2f} (5R)!")
+                return "CLOSED_TP"
+
+            is_trail = trade.sl_at_entry
+            return "CLOSED_TRAIL_SL" if is_trail else "CLOSED_SL"
+
+        # ── 2. POSITION IS ACTIVE ON LIGHTER ──
+        # Trailing SL update based on CMP
+        if current_price > 0:
+            old_sl = trade.sl_price
+            diff_thresh = 0.5 if self.symbol == "BTC" else 0.1
+            if abs(trade.sl_price - old_sl) > diff_thresh:
+                await self.amend_sl(trade.id, trade.sl_price, trade.side)
+
+        # Emergency SL safety check: if price blew past SL by > emergency buffer
+        is_long = (trade.side == Side.LONG)
+        breached = (current_price <= trade.sl_price - self.emergency_buffer) if is_long else (current_price >= trade.sl_price + self.emergency_buffer)
+        if breached and current_price > 0:
+            log.warning(
+                f"EMERGENCY: Price {current_price:.2f} breached SL {trade.sl_price:.2f} "
+                f"without exchange trigger! Executing market close on Lighter..."
+            )
+            await self.close_trade_orders(trade.id, reason="EMERGENCY_SL")
+            return "CLOSED_EMERGENCY"
+
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -400,7 +529,8 @@ class LighterLiveRunner:
         self.market_api_client = lighter.ApiClient(lighter.Configuration(host=MAINNET_URL))
 
         self.executor = LighterOrderExecutor(
-            self.signer_client, self.api_client, self.account_index, symbol=self.symbol
+            self.signer_client, self.api_client, self.market_api_client,
+            self.account_index, symbol=self.symbol
         )
 
         self.market_client = ccxt.binance({
@@ -410,11 +540,9 @@ class LighterLiveRunner:
         self.ccxt_symbol = f"{self.symbol}/USDT"
 
         self._last_candle_ts: Optional[datetime] = None
-        self._last_sl_sent: Dict[int, float] = {}
 
     async def start(self):
         log.info(f"=== Lighter Live Runner starting for {self.symbol} (Account: {self.account_index}) ===")
-        # Verify account collateral
         try:
             acc_api = lighter.AccountApi(self.api_client)
             acc = await acc_api.account(by="index", value=str(self.account_index))
@@ -430,12 +558,10 @@ class LighterLiveRunner:
     def _patch_engine(self):
         original_open = self.engine._open_trade
         original_close = self.engine._close_trade
-        original_update = self.engine._update_trail
 
         def patched_open(session, side, entry, rng, now):
             trade = original_open(session, side, entry, rng, now)
             if not self.is_bootstrapping:
-                self._last_sl_sent[trade.id] = trade.sl_price
                 asyncio.create_task(self.executor.place_breakout_limit(trade, boundary=entry))
                 try:
                     asyncio.create_task(post_telemetry_trade("Lighter", trade, symbol=self.symbol))
@@ -452,19 +578,8 @@ class LighterLiveRunner:
                 except Exception as e:
                     log.warning(f"Telemetry close trade error: {e}")
 
-        def patched_update(trade, price):
-            action = original_update(trade, price)
-            if not self.is_bootstrapping:
-                last_sl = self._last_sl_sent.get(trade.id, 0)
-                diff_thresh = 0.5 if self.symbol == "BTC" else 0.1
-                if abs(trade.sl_price - last_sl) > diff_thresh:
-                    asyncio.create_task(self.executor.amend_sl(trade.id, trade.sl_price, trade.side))
-                    self._last_sl_sent[trade.id] = trade.sl_price
-            return action
-
         self.engine._open_trade = patched_open
         self.engine._close_trade = patched_close
-        self.engine._update_trail = patched_update
 
     async def _get_current_price(self) -> float:
         # 1. Primary: Lighter mainnet order book mid price
@@ -523,7 +638,7 @@ class LighterLiveRunner:
             return []
 
     async def _bootstrap_active_session(self):
-        """Bootstrap the active session on startup."""
+        """Bootstrap the active session on startup without fake backtest simulation."""
         self.is_bootstrapping = True
         try:
             now_ist = datetime.now(tz=IST)
@@ -562,38 +677,53 @@ class LighterLiveRunner:
             if not sess:
                 return
 
+            # Fetch session candles to lock range
             minutes_elapsed = int((now_ist - session_start_ist).total_seconds() / 60)
             candle_count = min(150, max(5, int(minutes_elapsed / 5) + 3))
             candles = await self._fetch_candles(limit=candle_count)
 
             session_start_utc = session_start_ist.astimezone(timezone.utc)
-            now_utc = datetime.now(timezone.utc)
+            session_candles = [c for c in candles if c.timestamp >= session_start_utc]
+            sess.candle_buffer = session_candles
 
-            for c in candles:
-                if c.timestamp < session_start_utc:
-                    continue
-                if (now_utc - c.timestamp).total_seconds() < 290:
-                    continue
+            if len(sess.candle_buffer) >= 2:
+                found = find_symbol_range(self.symbol, sess.candle_buffer, sess.start_time)
+                if found:
+                    sess.range = found
+                    log.info(f"Range locked | upper={found.upper:.2f} lower={found.lower:.2f} width={found.width:.2f}pts")
+                    try:
+                        await post_telemetry_range("Lighter", sess, symbol=self.symbol)
+                    except Exception as e:
+                        log.warning(f"Telemetry range error: {e}")
 
-                self.engine.candle_idx += 1
-                sess.candle_buffer.append(c)
+            # RECONCILE WITH EXCHANGE ON STARTUP (NO SIMULATED TRADES)
+            try:
+                pos_sign = await self.executor.get_position_signed()
+                if abs(pos_sign) > 0.00001:
+                    log.info(f"Found active {self.symbol} position on Lighter during bootstrap: {pos_sign}")
+                    pos_side = Side.LONG if pos_sign > 0 else Side.SHORT
+                    if sess.range:
+                        trade = Trade(
+                            id=1,
+                            session_id=sess.id,
+                            trade_num=1,
+                            side=pos_side,
+                            entry_price=sess.range.upper if pos_side == Side.LONG else sess.range.lower,
+                            entry_boundary=sess.range.upper if pos_side == Side.LONG else sess.range.lower,
+                            sl_price=sess.range.lower if pos_side == Side.LONG else sess.range.upper,
+                            tp_price=(sess.range.upper + 5.0 * sess.range.width if pos_side == Side.LONG
+                                      else sess.range.lower - 5.0 * sess.range.width),
+                            risk_pts=sess.range.width,
+                            risk_usd=RISK_USDT,
+                            entry_time=now_ist,
+                            entry_candle_idx=0,
+                        )
+                        sess.trades.append(trade)
+                        sess.active_trade = trade
+            except Exception as e:
+                log.warning(f"Lighter bootstrap position check warning: {e}")
 
-                just_locked = False
-                if sess.range is None and len(sess.candle_buffer) >= 2:
-                    found = find_symbol_range(self.symbol, sess.candle_buffer, sess.start_time)
-                    if found:
-                        sess.range = found
-                        just_locked = True
-                        log.info(f"Range locked | upper={found.upper:.2f} lower={found.lower:.2f} width={found.width:.2f}pts")
-                        try:
-                            await post_telemetry_range("Lighter", sess, symbol=self.symbol)
-                        except Exception as e:
-                            log.warning(f"Telemetry range error: {e}")
-
-                if not just_locked:
-                    self.engine.process_candle(c, sess)
-
-            log.info(f"Bootstrap complete. Session candles: {len(sess.candle_buffer)}, Range locked: {sess.range is not None}, Completed trades: {len(sess.trades)}")
+            log.info(f"Bootstrap complete. Range locked: {sess.range is not None}, Active trade: {sess.active_trade is not None}")
         finally:
             self.is_bootstrapping = False
 
@@ -603,6 +733,8 @@ class LighterLiveRunner:
             try:
                 now_ist = datetime.now(tz=IST)
                 self.scheduler.check(now_ist)
+                sess = self.engine.current_session
+                current_price = await self._get_current_price()
 
                 # 1. Check if a pending limit entry order just got filled
                 filled_trade = await self.executor.check_pending_entry()
@@ -612,7 +744,7 @@ class LighterLiveRunner:
                     except Exception as e:
                         log.warning(f"Telemetry trade update error: {e}")
 
-                # 2. Check 5m closed candles
+                # 2. Check 5m closed candles FOR RANGE DETECTION AND HEARTBEAT ONLY
                 candles = await self._fetch_candles(limit=4)
                 if candles and len(candles) >= 2:
                     last_closed = candles[-2]
@@ -628,15 +760,12 @@ class LighterLiveRunner:
                         except Exception:
                             pass
 
-                        sess = self.engine.current_session
-                        if sess:
+                        if sess and sess.range is None:
                             sess.candle_buffer.append(last_closed)
-                            just_locked = False
-                            if sess.range is None and len(sess.candle_buffer) >= 2:
+                            if len(sess.candle_buffer) >= 2:
                                 found = find_symbol_range(self.symbol, sess.candle_buffer, sess.start_time)
                                 if found:
                                     sess.range = found
-                                    just_locked = True
                                     log.info(
                                         f"Range locked | upper={found.upper:.2f} "
                                         f"lower={found.lower:.2f} width={found.width:.2f}pts"
@@ -646,15 +775,65 @@ class LighterLiveRunner:
                                     except Exception as e:
                                         log.error(f"Telemetry range error: {e}")
 
-                            if not just_locked:
-                                self.engine.process_candle(last_closed, sess)
+                # 3. If an active trade is open: SYNC WITH REAL EXCHANGE!
+                if sess and sess.active_trade and self.executor.pending_entry is None:
+                    # Enforce Cutoff
+                    if self.engine._past_cutoff(sess, now_ist):
+                        log.info(f"Session cutoff reached at {now_ist.strftime('%H:%M:%S IST')}. Closing open position...")
+                        trade = sess.active_trade
+                        await self.executor.close_trade_orders(trade.id, reason="CUTOFF")
+                        self.engine._close_trade(trade, current_price, now_ist, "CUTOFF")
+                        sess.active_trade = None
+                        try:
+                            await post_telemetry_trade("Lighter", trade, symbol=self.symbol)
+                        except Exception:
+                            pass
+                        continue
 
-                # 3. Real-time Breakout Check: Trigger limit order instantly when price hits boundary
-                sess = self.engine.current_session
-                if sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
-                    current_price = await self._get_current_price()
+                    # Update trailing in memory first
+                    if current_price > 0:
+                        old_sl = sess.active_trade.sl_price
+                        self.engine._update_trail(sess.active_trade, current_price)
+                        diff_thresh = 0.5 if self.symbol == "BTC" else 0.1
+                        if abs(sess.active_trade.sl_price - old_sl) > diff_thresh:
+                            await self.executor.amend_sl(sess.active_trade.id, sess.active_trade.sl_price, sess.active_trade.side)
 
-                    # If hunting for breakout:
+                    # Reconcile with exchange position
+                    exit_event = await self.executor.sync_active_trade(sess.active_trade, current_price, now_ist)
+                    if exit_event:
+                        trade = sess.active_trade
+                        exit_price = current_price
+                        reason = exit_event.replace("CLOSED_", "")
+
+                        if exit_event == "CLOSED_TP":
+                            exit_price = trade.tp_price
+                        elif exit_event in ("CLOSED_SL", "CLOSED_TRAIL_SL"):
+                            exit_price = trade.sl_price
+
+                        self.engine._close_trade(trade, exit_price, now_ist, reason)
+                        sess.active_trade = None
+
+                        try:
+                            await post_telemetry_trade("Lighter", trade, symbol=self.symbol)
+                        except Exception as e:
+                            log.warning(f"Telemetry close trade error: {e}")
+
+                        # Determine if session target reached or if we retrade
+                        if exit_event in ("CLOSED_TP", "CLOSED_TRAIL_SL") or trade.sl_at_entry:
+                            sess.target_hit = True
+                            log.info(f"Session target achieved with profit/breakeven exit ({reason}). Done for session.")
+                        elif exit_event in ("CLOSED_SL", "CLOSED_EMERGENCY"):
+                            # Raw SL hit (loss): Check Retrade eligibility
+                            log.info(f"Trade {trade.trade_num} hit SL. Checking retrade (trades taken: {sess.trade_count}/{Config.MAX_TRADES})...")
+                            if sess.can_take_new_trade and not self.engine._past_cutoff(sess, now_ist):
+                                next_side = sess.next_side()
+                                if next_side:
+                                    entry_price = sess.range.upper if next_side == Side.LONG else sess.range.lower
+                                    log.info(f"RETRADE TRIGGERED: Placing opposite {next_side.value.upper()} limit order at {entry_price:.2f}...")
+                                    self.engine._open_trade(sess, next_side, entry_price, sess.range, now_ist)
+
+                # 4. If hunting for breakout:
+                elif sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
                     if sess.active_trade is None and self.executor.pending_entry is None and sess.can_take_new_trade:
                         if current_price >= sess.range.upper:
                             side = sess.next_side()
@@ -678,11 +857,6 @@ class LighterLiveRunner:
                             log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
                             await self.executor.cancel_pending_entry(reason="Reversed through opposite boundary")
                             sess.active_trade = None
-
-                    # If active trade is open and filled, tick trail monitor
-                    elif sess.active_trade and self.executor.pending_entry is None:
-                        if current_price > 0:
-                            self.engine._update_trail(sess.active_trade, current_price)
 
                 await asyncio.sleep(3)
             except KeyboardInterrupt:
