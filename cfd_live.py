@@ -3,6 +3,7 @@
 FoxAlgo — TradeLocker US100 Live Automated Runner
 Executes 5m Session Range Breakout strategy on NASDAQ 100 Index CFD (US100):
   - Sessions: S1 Morning (08:00 - 17:30 IST) & S2 Evening (20:00 - 05:30 IST)
+  - Max trades: 2 trades per session (Trade 1 + 1 re-trade if SL hit; Trade 3 eliminated; max daily loss capped at -4R)
   - Buffer: 0.01% of CMP (~2.5-3.0 pts on US100)
   - Bodyless filter: 0.005% of CMP (~1.2-1.5 pts)
   - Risk per trade: $10.00 USD (fixed)
@@ -16,14 +17,17 @@ Executes 5m Session Range Breakout strategy on NASDAQ 100 Index CFD (US100):
 import os
 import sys
 import time
+import json
 import asyncio
 import logging
+import subprocess
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -54,6 +58,10 @@ IST = ZoneInfo("Asia/Kolkata")
 RISK_USD = 10.0            # $10 fixed risk per trade
 SYMBOL = "US100"
 INSTRUMENT_ID = 4858       # US100 tradableInstrumentId in FTRM TradeLocker
+MAX_TRADES_PER_SESSION = 2 # Max trades allowed per session (Trade 1 + 1 re-trade; max daily loss capped at -4R)
+
+# Configure strategy engine session limit for US100
+Config.MAX_TRADES = MAX_TRADES_PER_SESSION
 
 
 # ─────────────────────────────────────────────
@@ -330,6 +338,7 @@ class TradeLockerOrderExecutor:
 class TradeLockerLiveRunner:
 
     def __init__(self):
+        Config.MAX_TRADES = MAX_TRADES_PER_SESSION
         self.engine = StrategyEngine()
         self.scheduler = _SessionScheduler(self.engine)
         self.is_bootstrapping = False
@@ -353,6 +362,7 @@ class TradeLockerLiveRunner:
 
         self.executor = TradeLockerOrderExecutor(self.tl, INSTRUMENT_ID)
         self._last_candle_ts: Optional[datetime] = None
+        log.info(f"Max trades per session: {Config.MAX_TRADES} (Trade 1 + 1 re-trade max, max daily loss -4R)")
 
     def start(self):
         log.info("=== TradeLocker US100 Live Runner Started ===")
@@ -625,17 +635,75 @@ class TradeLockerLiveRunner:
                             log.info(f"Session target achieved with profit/breakeven exit ({reason}). Done for session.")
                         elif exit_event in ("CLOSED_SL", "CLOSED_EMERGENCY"):
                             # Raw SL hit (loss): Check Retrade eligibility
-                            log.info(f"Trade {trade.trade_num} hit SL. Checking retrade (trades taken: {sess.trade_count}/{Config.MAX_TRADES})...")
+                            log.info(f"Trade {trade.trade_num} hit SL. Checking retrade (trades taken: {sess.trade_count}/{MAX_TRADES_PER_SESSION})...")
                             if sess.can_take_new_trade and not self.engine._past_cutoff(sess, now_ist):
                                 next_side = sess.next_side()
                                 if next_side:
                                     entry_price = sess.range.upper if next_side == Side.LONG else sess.range.lower
                                     log.info(f"RETRADE TRIGGERED: Placing opposite {next_side.value.upper()} limit order at {entry_price:.2f}...")
                                     self.engine._open_trade(sess, next_side, entry_price, sess.range, now_ist)
+                            elif sess.trade_count >= MAX_TRADES_PER_SESSION:
+                                log.info(f"Session trade limit reached ({sess.trade_count}/{MAX_TRADES_PER_SESSION}). No re-trade (Done for session).")
 
-                # 4. If hunting for breakout:
+                # 4. If a pending limit entry order is waiting:
+                if self.executor.pending_order:
+                    pending_trade = self.executor.pending_order['trade']
+                    is_long = (pending_trade.side == Side.LONG)
+                    rr_1_7_target = pending_trade.price_at_r(1.7)
+
+                    # Check if past session cutoff
+                    if sess and self.engine._past_cutoff(sess, now_ist):
+                        log.info(f"Session cutoff reached at {now_ist.strftime('%H:%M:%S IST')} while limit order pending. Cancelling order.")
+                        self.executor.cancel_pending(reason="CUTOFF")
+                        sess.active_trade = None
+                        if pending_trade in sess.trades:
+                            sess.trades.remove(pending_trade)
+
+                    else:
+                        latest_high = current_price
+                        latest_low = current_price
+                        if candles:
+                            latest_high = max(latest_high, candles[-1].high)
+                            latest_low = min(latest_low, candles[-1].low)
+
+                        hit_1_7 = (latest_high >= rr_1_7_target) if is_long else (latest_low <= rr_1_7_target)
+
+                        if hit_1_7:
+                            log.info(
+                                f"1:1.7 R:R CANCEL TRIGGERED: Price reached 1:1.7 R:R target ({rr_1_7_target:.2f}) "
+                                f"without filling {pending_trade.side.value.upper()} limit entry at {pending_trade.entry_boundary:.2f}! "
+                                f"(Current={current_price:.2f}, High={latest_high:.2f}, Low={latest_low:.2f}). Cancelling order."
+                            )
+                            self.executor.cancel_pending(reason="1:1.7 R:R reached without fill")
+                            sess.active_trade = None
+                            sess.target_hit = True
+                            if pending_trade in sess.trades:
+                                pending_trade.state = TradeState.CLOSED
+                                pending_trade.exit_price = current_price
+                                pending_trade.exit_reason = "CANCELLED_1.7R"
+                                pending_trade.exit_time = now_ist
+                                try:
+                                    asyncio.run(post_telemetry_trade("TradeLocker", pending_trade, symbol=SYMBOL))
+                                except Exception as e:
+                                    log.warning(f"Telemetry trade update error: {e}")
+
+                        elif is_long and sess and sess.range and current_price <= sess.range.lower:
+                            log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
+                            if pending_trade in sess.trades:
+                                sess.trades.remove(pending_trade)
+
+                        elif not is_long and sess and sess.range and current_price >= sess.range.upper:
+                            log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
+                            if pending_trade in sess.trades:
+                                sess.trades.remove(pending_trade)
+
+                # 5. If hunting for breakout:
                 elif sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
-                    if sess.active_trade is None and self.executor.pending_order is None and sess.can_take_new_trade:
+                    if sess.active_trade is None and sess.can_take_new_trade:
                         rng = sess.range
                         if current_price >= rng.upper:
                             side = sess.next_side()
@@ -648,22 +716,70 @@ class TradeLockerLiveRunner:
                                 log.info(f"Real-time breakout: price {current_price:.2f} <= lower {rng.lower:.2f}! Placing Limit Sell...")
                                 self.engine._open_trade(sess, Side.SHORT, rng.lower, rng, now_ist)
 
-                    # If pending limit order is waiting, check if market reversed across the range
-                    elif self.executor.pending_order:
-                        pending_trade = self.executor.pending_order['trade']
-                        if pending_trade.side == Side.LONG and current_price <= sess.range.lower:
-                            log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
-                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
-                            sess.active_trade = None
-                        elif pending_trade.side == Side.SHORT and current_price >= sess.range.upper:
-                            log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
-                            self.executor.cancel_pending(reason="Reversed through opposite boundary")
-                            sess.active_trade = None
+                # 6. Check if Friday trading is completed and bot should stop for the weekend
+                if self._is_weekend_completed(sess, now_ist):
+                    self._stop_for_weekend()
+                    break
 
             except Exception as e:
                 log.error(f"Main loop error: {e}", exc_info=True)
 
             time.sleep(3)
+
+    def _is_weekend_completed(self, sess: Optional[Session], now_ist: datetime) -> bool:
+        w = now_ist.weekday()
+        h = now_ist.hour
+        m = now_ist.minute
+
+        in_weekend_window = (
+            (w == 4 and h >= 20) or
+            (w in (5, 6)) or
+            (w == 0 and (h < 7 or (h == 7 and m < 55)))
+        )
+        if not in_weekend_window:
+            return False
+
+        if self.executor.pending_order is not None:
+            return False
+
+        if sess and sess.active_trade is not None:
+            return False
+
+        # US100 CFD does not trade on the weekend
+        if w in (5, 6) or (w == 0 and (h < 7 or (h == 7 and m < 55))):
+            return True
+
+        if w == 4 and sess:
+            if sess.target_hit or sess.trade_count >= Config.MAX_TRADES:
+                return True
+            if self.engine._past_cutoff(sess, now_ist):
+                return True
+
+        return False
+
+    def _stop_for_weekend(self):
+        app_name = "foxalgo-tradelocker-us100"
+        log.info(f"[WEEKEND_STOP] Friday trades completed and flat for {SYMBOL}. Stopping PM2 process {app_name} for the weekend.")
+        try:
+            state_dir = os.path.expanduser("~/foxAlgo/.weekend_state")
+            os.makedirs(state_dir, exist_ok=True)
+            with open(os.path.join(state_dir, f"{app_name}.json"), "w") as f:
+                json.dump({
+                    "app": app_name,
+                    "symbol": SYMBOL,
+                    "status": "STOPPED",
+                    "time": datetime.now(tz=IST).isoformat(),
+                    "reason": "FRIDAY_TRADES_CLOSED"
+                }, f, indent=2)
+        except Exception as e:
+            log.warning(f"Error saving weekend state: {e}")
+
+        try:
+            subprocess.Popen(["pm2", "stop", app_name])
+        except Exception as e:
+            log.warning(f"Error invoking pm2 stop {app_name}: {e}")
+
+        sys.exit(0)
 
 
 if __name__ == "__main__":

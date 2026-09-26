@@ -229,8 +229,14 @@ class StrategyEngine:
         if ist_entry.weekday() != 4:
             return False
         ch, cm = Config.FRIDAY_CARRY_CUTOFF
-        return (ist_now.weekday() == 5 and
-                (ist_now.hour > ch or (ist_now.hour == ch and ist_now.minute >= cm)))
+        w = ist_now.weekday()
+        if w == 5: # Saturday
+            return (ist_now.hour > ch or (ist_now.hour == ch and ist_now.minute >= cm))
+        elif w == 6: # Sunday
+            return True
+        elif w == 0 and ist_now.hour < 8: # Monday pre-market
+            return True
+        return False
 
     def get_open_trade_and_session(self) -> tuple[Optional[Trade], Optional[Session]]:
         """Returns the currently active trade and its parent session globally."""
