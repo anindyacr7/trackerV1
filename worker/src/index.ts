@@ -3,11 +3,26 @@ import { cors } from 'hono/cors'
 
 type Bindings = {
   DB: D1Database
+  TELEMETRY_SECRET?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('*', cors())
+
+// Protect /api/live/ write endpoints with Bearer Token
+app.use('/api/live/*', async (c, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(c.req.method)) {
+    const secret = c.env.TELEMETRY_SECRET
+    if (secret) {
+      const authHeader = c.req.header('Authorization')
+      if (!authHeader || authHeader !== `Bearer ${secret}`) {
+        return c.json({ error: 'Unauthorized: Invalid or missing telemetry token' }, 401)
+      }
+    }
+  }
+  await next()
+})
 
 // STRATEGIES
 app.get('/api/strategies', async (c) => {
