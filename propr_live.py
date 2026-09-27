@@ -16,16 +16,19 @@ Executes 5m Session Range Breakout strategy on Propr (Hyperliquid prop firm chal
 import os
 import sys
 import time
+import json
 import asyncio
 import logging
 import requests
 import argparse
+import subprocess
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any
 from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
 # Add directory to sys.path
@@ -36,7 +39,7 @@ from propr_sdk import ProprClient
 from telemetry import post_telemetry_range, post_telemetry_trade, post_telemetry_heartbeat
 from btc_strategy_v2 import (
     StrategyEngine, _SessionScheduler, Config, Side, SessionID,
-    Candle, Session, Trade, Range
+    Candle, Session, Trade, Range, TradeState
 )
 
 log = logging.getLogger("ProprLive")
@@ -106,6 +109,19 @@ class ProprOrderExecutor:
         self.active_orders: Dict[int, Dict[str, Any]] = {}
         # Pending limit entry order: { 'trade': Trade, 'order_id': str, 'qty_str': str, 'pos_side': str, 'close_side': str, 'limit_price': str, 'price_prec': int, 'placed_time': float }
         self.pending_entry: Optional[Dict[str, Any]] = None
+
+    def get_position_signed(self) -> float:
+        try:
+            positions = self.client.get_open_positions(base=self.asset)
+            if positions and float(positions[0].get("quantity", 0)) > 0:
+                pos = positions[0]
+                qty = float(pos.get("quantity", 0))
+                side = pos.get("positionSide", "").lower()
+                return qty if side in ("long", "buy") else -qty
+            return 0.0
+        except Exception as e:
+            log.warning(f"get_position_signed error: {e}")
+            return 0.0
 
     def open_position(self, trade: Trade, current_price: float):
         sl_pts = abs(trade.entry_boundary - trade.sl_price)
@@ -626,30 +642,41 @@ class ProprLiveRunner:
         self.is_bootstrapping = True
         try:
             now_ist = datetime.now(tz=IST)
-            if now_ist.weekday() >= 5:
-                log.info("Weekend — no active session to bootstrap.")
-                return
-
             target_sid = None
             session_start_ist = None
 
-            s1_start = now_ist.replace(hour=8, minute=0, second=0, microsecond=0)
-            s1_cutoff = now_ist.replace(hour=17, minute=30, second=0, microsecond=0)
+            if now_ist.weekday() >= 5:
+                # On weekend, check if there is an active position carried over from Friday
+                try:
+                    pos_sign = self.executor.get_position_signed()
+                    if abs(pos_sign) < 0.00001:
+                        log.info("Weekend — no active session or position to bootstrap.")
+                        return
+                    log.info(f"Weekend bootstrap: Found active {self.symbol} position ({pos_sign}) carried from Friday! Bootstrapping Friday S2 session...")
+                    days_back = now_ist.weekday() - 4  # 1 for Sat, 2 for Sun
+                    target_sid = SessionID.S2
+                    session_start_ist = (now_ist - timedelta(days=days_back)).replace(hour=20, minute=0, second=0, microsecond=0)
+                except Exception as e:
+                    log.warning(f"Weekend position check error: {e}")
+                    return
+            else:
+                s1_start = now_ist.replace(hour=8, minute=0, second=0, microsecond=0)
+                s1_cutoff = now_ist.replace(hour=17, minute=30, second=0, microsecond=0)
 
-            s2_start = now_ist.replace(hour=20, minute=0, second=0, microsecond=0)
-            s2_cutoff = (now_ist + timedelta(days=1)).replace(hour=5, minute=30, second=0, microsecond=0)
-            s2_early_start = (now_ist - timedelta(days=1)).replace(hour=20, minute=0, second=0, microsecond=0)
-            s2_early_cutoff = now_ist.replace(hour=5, minute=30, second=0, microsecond=0)
+                s2_start = now_ist.replace(hour=20, minute=0, second=0, microsecond=0)
+                s2_cutoff = (now_ist + timedelta(days=1)).replace(hour=5, minute=30, second=0, microsecond=0)
+                s2_early_start = (now_ist - timedelta(days=1)).replace(hour=20, minute=0, second=0, microsecond=0)
+                s2_early_cutoff = now_ist.replace(hour=5, minute=30, second=0, microsecond=0)
 
-            if s1_start <= now_ist < s1_cutoff:
-                target_sid = SessionID.S1
-                session_start_ist = s1_start
-            elif now_ist >= s2_start:
-                target_sid = SessionID.S2
-                session_start_ist = s2_start
-            elif now_ist < s2_early_cutoff:
-                target_sid = SessionID.S2
-                session_start_ist = s2_early_start
+                if s1_start <= now_ist < s1_cutoff:
+                    target_sid = SessionID.S1
+                    session_start_ist = s1_start
+                elif now_ist >= s2_start:
+                    target_sid = SessionID.S2
+                    session_start_ist = s2_start
+                elif now_ist < s2_early_cutoff:
+                    target_sid = SessionID.S2
+                    session_start_ist = s2_early_start
 
             if not target_sid:
                 log.info("Currently outside active session windows. Scheduler will start next session.")
@@ -782,8 +809,24 @@ class ProprLiveRunner:
 
                 # 3. If an active trade is open: SYNC WITH REAL EXCHANGE!
                 if sess and sess.active_trade and self.executor.pending_entry is None:
-                    # Enforce Cutoff
-                    if self.engine._past_cutoff(sess, now_ist):
+                    # Check Friday carry-forward
+                    is_carry = self.engine._friday_carry_active(sess.active_trade, now_ist)
+                    if is_carry:
+                        if not getattr(sess.active_trade, '_friday_carry_applied', False):
+                            sess.active_trade.tp_price = sess.active_trade.price_at_r(Config.FRIDAY_CARRY_TP)
+                            sess.active_trade.sl_price = sess.active_trade.entry_price
+                            sess.active_trade.sl_at_entry = True
+                            sess.active_trade._friday_carry_applied = True
+                            log.info(
+                                f"[FRIDAY CARRY] Friday trade {sess.active_trade.trade_num} carried into weekend! "
+                                f"TP adjusted to 3.0R ({sess.active_trade.tp_price:.2f}), "
+                                f"SL moved to Breakeven ({sess.active_trade.sl_price:.2f})."
+                            )
+                            try:
+                                self.executor.amend_sl(sess.active_trade.id, sess.active_trade.sl_price)
+                            except Exception as e:
+                                log.warning(f"Error amending SL for Friday carry: {e}")
+                    elif self.engine._past_cutoff(sess, now_ist):
                         log.info(f"Session cutoff reached at {now_ist.strftime('%H:%M:%S IST')}. Closing open position...")
                         trade = sess.active_trade
                         self.executor.close_trade_orders(trade.id, reason="CUTOFF")
@@ -830,16 +873,72 @@ class ProprLiveRunner:
                         elif exit_event in ("CLOSED_SL", "CLOSED_EMERGENCY"):
                             # Raw SL hit (loss): Check Retrade eligibility
                             log.info(f"Trade {trade.trade_num} hit SL. Checking retrade (trades taken: {sess.trade_count}/{Config.MAX_TRADES})...")
-                            if sess.can_take_new_trade and not self.engine._past_cutoff(sess, now_ist):
+                            if sess.can_take_new_trade and not self.engine._past_cutoff(sess, now_ist) and now_ist.weekday() < 5:
                                 next_side = sess.next_side()
                                 if next_side:
                                     entry_price = sess.range.upper if next_side == Side.LONG else sess.range.lower
                                     log.info(f"RETRADE TRIGGERED: Placing opposite {next_side.value.upper()} limit order at {entry_price:.2f}...")
                                     self.engine._open_trade(sess, next_side, entry_price, sess.range, now_ist)
 
-                # 4. If hunting for breakout:
-                elif sess and sess.range and not self.engine._past_cutoff(sess, now_ist):
-                    if sess.active_trade is None and self.executor.pending_entry is None and sess.can_take_new_trade:
+                # 4. If a pending limit entry order is waiting:
+                if self.executor.pending_entry:
+                    pending_trade = self.executor.pending_entry['trade']
+                    is_long = (pending_trade.side == Side.LONG)
+                    rr_1_7_target = pending_trade.price_at_r(1.7)
+
+                    # Check if past session cutoff
+                    if sess and self.engine._past_cutoff(sess, now_ist):
+                        log.info(f"Session cutoff reached at {now_ist.strftime('%H:%M:%S IST')} while limit order pending. Cancelling order.")
+                        self.executor.cancel_pending_entry(reason="CUTOFF")
+                        sess.active_trade = None
+                        if pending_trade in sess.trades:
+                            sess.trades.remove(pending_trade)
+
+                    else:
+                        latest_high = current_price
+                        latest_low = current_price
+                        if candles:
+                            latest_high = max(latest_high, candles[-1].high)
+                            latest_low = min(latest_low, candles[-1].low)
+
+                        hit_1_7 = (latest_high >= rr_1_7_target) if is_long else (latest_low <= rr_1_7_target)
+
+                        if hit_1_7:
+                            log.info(
+                                f"1:1.7 R:R CANCEL TRIGGERED: Price reached 1:1.7 R:R target ({rr_1_7_target:.2f}) "
+                                f"without filling {pending_trade.side.value.upper()} limit entry at {pending_trade.entry_boundary:.2f}! "
+                                f"(Current={current_price:.2f}, High={latest_high:.2f}, Low={latest_low:.2f}). Cancelling order."
+                            )
+                            self.executor.cancel_pending_entry(reason="1:1.7 R:R reached without fill")
+                            sess.active_trade = None
+                            sess.target_hit = True
+                            if pending_trade in sess.trades:
+                                pending_trade.state = TradeState.CLOSED
+                                pending_trade.exit_price = current_price
+                                pending_trade.exit_reason = "CANCELLED_1.7R"
+                                pending_trade.exit_time = now_ist
+                                try:
+                                    asyncio.run(post_telemetry_trade("Propr", pending_trade, symbol=self.symbol))
+                                except Exception as e:
+                                    log.warning(f"Telemetry trade update error: {e}")
+
+                        elif is_long and sess and sess.range and current_price <= sess.range.lower:
+                            log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending_entry(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
+                            if pending_trade in sess.trades:
+                                sess.trades.remove(pending_trade)
+
+                        elif not is_long and sess and sess.range and current_price >= sess.range.upper:
+                            log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
+                            self.executor.cancel_pending_entry(reason="Reversed through opposite boundary")
+                            sess.active_trade = None
+                            if pending_trade in sess.trades:
+                                sess.trades.remove(pending_trade)
+
+                # 5. If hunting for breakout (weekdays only):
+                elif sess and sess.range and not self.engine._past_cutoff(sess, now_ist) and now_ist.weekday() < 5:
+                    if sess.active_trade is None and sess.can_take_new_trade:
                         if current_price >= sess.range.upper:
                             side = sess.next_side()
                             if side in (None, Side.LONG):
@@ -851,17 +950,10 @@ class ProprLiveRunner:
                                 log.info(f"Real-time breakout detected: price {current_price:.2f} <= lower {sess.range.lower:.2f}! Triggering Limit Sell...")
                                 self.engine._open_trade(sess, Side.SHORT, sess.range.lower, sess.range, now_ist)
 
-                    # If pending limit order is waiting, check if market reversed across the range
-                    elif self.executor.pending_entry:
-                        pending_trade = self.executor.pending_entry['trade']
-                        if pending_trade.side == Side.LONG and current_price <= sess.range.lower:
-                            log.info("Price reversed through lower boundary while Long limit order was pending. Cancelling order.")
-                            self.executor.cancel_pending_entry(reason="Reversed through opposite boundary")
-                            sess.active_trade = None
-                        elif pending_trade.side == Side.SHORT and current_price >= sess.range.upper:
-                            log.info("Price reversed through upper boundary while Short limit order was pending. Cancelling order.")
-                            self.executor.cancel_pending_entry(reason="Reversed through opposite boundary")
-                            sess.active_trade = None
+                # 6. Check if Friday trading is completed and bot should stop for the weekend
+                if self._is_weekend_completed(sess, now_ist):
+                    self._stop_for_weekend()
+                    break
 
                 time.sleep(3)
             except KeyboardInterrupt:
@@ -870,6 +962,62 @@ class ProprLiveRunner:
             except Exception as e:
                 log.error(f"Unexpected loop exception: {e}", exc_info=True)
                 time.sleep(10)
+
+    def _is_weekend_completed(self, sess: Optional[Session], now_ist: datetime) -> bool:
+        w = now_ist.weekday()
+        h = now_ist.hour
+        m = now_ist.minute
+
+        in_weekend_window = (
+            (w == 4 and h >= 20) or
+            (w in (5, 6)) or
+            (w == 0 and (h < 7 or (h == 7 and m < 55)))
+        )
+        if not in_weekend_window:
+            return False
+
+        if self.executor.pending_entry is not None:
+            return False
+
+        if sess and sess.active_trade is not None:
+            return False
+
+        # On Saturday, Sunday, or Monday pre-market with no active trade and no pending entry
+        if w in (5, 6) or (w == 0 and (h < 7 or (h == 7 and m < 55))):
+            return True
+
+        # On Friday night: done if session target reached, max trades taken, or past cutoff
+        if w == 4 and sess:
+            if sess.target_hit or sess.trade_count >= Config.MAX_TRADES:
+                return True
+            if self.engine._past_cutoff(sess, now_ist):
+                return True
+
+        return False
+
+    def _stop_for_weekend(self):
+        app_name = f"foxalgo-propr-{self.symbol.lower()}"
+        log.info(f"[WEEKEND_STOP] Friday trades completed and flat for {self.symbol}. Stopping PM2 process {app_name} for the weekend.")
+        try:
+            state_dir = os.path.expanduser("~/foxAlgo/.weekend_state")
+            os.makedirs(state_dir, exist_ok=True)
+            with open(os.path.join(state_dir, f"{app_name}.json"), "w") as f:
+                json.dump({
+                    "app": app_name,
+                    "symbol": self.symbol,
+                    "status": "STOPPED",
+                    "time": datetime.now(tz=IST).isoformat(),
+                    "reason": "FRIDAY_TRADES_CLOSED"
+                }, f, indent=2)
+        except Exception as e:
+            log.warning(f"Error saving weekend state: {e}")
+
+        try:
+            subprocess.Popen(["pm2", "stop", app_name])
+        except Exception as e:
+            log.warning(f"Error invoking pm2 stop {app_name}: {e}")
+
+        sys.exit(0)
 
 
 def main():

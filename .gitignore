@@ -25,3 +25,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Data & Large artifacts
+data/
+*.xlsx
+.~lock.*#
+scratch/
